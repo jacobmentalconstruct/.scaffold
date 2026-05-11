@@ -152,6 +152,25 @@ The builder shall preserve the distinction between:
 - **Design truth:** `/ARCHITECTURE.md` at the sidecar root.
 - **Runtime-consumed truth:** the host project's own internal data stores (which the sidecar reads but does not own).
 
+### **D. Park Phase Discipline** *(added 2026-05-11; codifies what was previously a conversational ritual — see journal entry `journal_18ae7fbc35603af0_ec2ea642`)*
+
+Every tranche closes with a Park Phase per `ARCHITECTURE.md §12.2`. The phase is **not optional** and is **not memorized in chat** — it is encoded in the codebase and enforced by `smoke_test.py`.
+
+A complete parking record is the union of these five artifacts. If any one is missing, the tranche is not parked and the next tranche must not begin:
+
+1. A `kind='tranche'` journal entry written via the standard envelope chain (`create_journal_entry`), with `evidence_refs` citing a CAS-stored park-notes blob, importance ≥ 8, related_path pointing at `_docs/T_n_PARK_NOTES.md`.
+2. The park-notes file itself (`_docs/T_n_PARK_NOTES.md`) and its blob in `blob_store`.
+3. **All continuity docs updated** (this is the most-drifted step — make it mechanical):
+    - `IMPLEMENTATION_ROADMAP.md` — tranche marked `COMPLETE` with metrics and entry uid.
+    - `SOURCE_PROVENANCE.md` — dated entry distinguishing original code vs structural borrows.
+    - `TOOLS.md` — row count must equal `tool_registry` count.
+    - `ARCHITECTURE.md §15` — `Resolved at T_n` subsection added.
+    - `README.md` — top-level status header reflects current state.
+4. An `accept_task` envelope and a correlated `complete_task` envelope (the tranche lifecycle events).
+5. A `close_journal_entry` envelope moving the tranche entry's status from `'open'` → `'closed'`. The entry's content is immutable per `ARCHITECTURE.md §13.1` (Journal Doctrine); the status change is a non-destructive lifecycle update.
+
+**Verification:** `python smoke_test.py` includes **drift-detection sections** that fail when any of the above is missing. If smoke test fails, the tranche is not parked. **A failed Park Phase is a HARD_BLOCK gate violation** for any non-bootstrap intent submitted after the tranche's last `complete_task` event — i.e., the next tranche cannot proceed.
+
 ---
 
 ## **Required Project Documentation & Persistence**

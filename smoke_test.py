@@ -566,6 +566,177 @@ def main() -> int:
     else:
         failures.append(_fail(f"resources/read bad response: {rr_resp}"))
 
+    # =============================================================
+    # PARK PHASE DRIFT DETECTION (added 2026-05-11; contract §D)
+    # =============================================================
+    # These sections verify that continuity docs are in sync with state.
+    # A failure here means the most recent tranche is not properly parked
+    # (per ARCHITECTURE.md §12.2 + contract §D).
+    # =============================================================
+
+    import re as _re
+    sidecar_root = state.sidecar_root
+
+    _section("36. DRIFT: TOOLS.md row count matches tool_registry count")
+    registered_count = state.tool_registry_manager.count()
+    tools_md = (sidecar_root / "TOOLS.md").read_text(encoding="utf-8")
+    # Count rows in the "## Registered tools" table.
+    # Match table rows that look like: | `tool_name` | ... |
+    rows_md = _re.findall(r"^\|\s*`[a-z_]+`\s*\|", tools_md, _re.MULTILINE)
+    if len(rows_md) == registered_count:
+        _ok(f"TOOLS.md rows ({len(rows_md)}) match tool_registry count ({registered_count})")
+    else:
+        failures.append(_fail(
+            f"TOOLS.md rows={len(rows_md)} vs tool_registry={registered_count} — DRIFT"
+        ))
+
+    _section("37. DRIFT: README.md status header reflects current state (not 'Tranche 0')")
+    readme = (sidecar_root / "README.md").read_text(encoding="utf-8")
+    header_lines = readme.split("\n", 10)[:6]
+    header_text = "\n".join(header_lines)
+    if "Tranche 0" in header_text and "No executable code yet" in header_text:
+        failures.append(_fail("README.md status header still says 'Tranche 0 — No executable code yet' — DRIFT"))
+    else:
+        _ok("README.md status header does not name a stale tranche state")
+
+    _section("38. DRIFT: ARCHITECTURE.md §15 has 'Resolved at T_n' for every completed tranche")
+    arch = (sidecar_root / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    # Count completed tranches from journal_entries kind='tranche'.
+    tranches = state.journal_manager.query(kind="tranche", limit=50)
+    completed_tranches = sorted(
+        {_re.match(r"T(\d+)", e.title).group(1) for e in tranches if _re.match(r"T(\d+)", e.title)}
+    )
+    missing_sections = []
+    for n in completed_tranches:
+        if f"Resolved at T{n}" not in arch:
+            missing_sections.append(f"T{n}")
+    if not missing_sections:
+        _ok(f"ARCHITECTURE.md §15 has 'Resolved at T_n' for tranches: {completed_tranches}")
+    else:
+        failures.append(_fail(
+            f"ARCHITECTURE.md §15 missing 'Resolved at T_n' for: {missing_sections} — DRIFT"
+        ))
+
+    _section("39. DRIFT: latest tranche journal entry is status='closed' (not 'open')")
+    if tranches:
+        # Sort by created_at desc — query returns DESC by default.
+        latest = tranches[0]
+        if latest.status == "closed":
+            _ok(f"latest tranche entry {latest.entry_uid} is status='closed'")
+        else:
+            failures.append(_fail(
+                f"latest tranche entry {latest.entry_uid} has status={latest.status!r} "
+                f"(must be 'closed' per Park Phase step 7)"
+            ))
+    else:
+        failures.append(_fail("no tranche entries found in journal — no Park Phase performed?"))
+
+    _section("40. DRIFT: every tranche entry cites at least one evidence_ref")
+    drift_count = 0
+    for entry in tranches:
+        ev_row = state.store.query_one(
+            "SELECT evidence_refs FROM events WHERE event_id = ?;", (entry.event_id,)
+        )
+        import json as _json
+        ev_refs = _json.loads(ev_row["evidence_refs"]) if ev_row and ev_row["evidence_refs"] else []
+        valid = [ref for ref in ev_refs if state.blob_store.exists(ref.get("hash", ""))]
+        if not valid:
+            failures.append(_fail(
+                f"tranche entry {entry.entry_uid} ({entry.title}) has no resolvable evidence_ref"
+            ))
+            drift_count += 1
+    if not drift_count:
+        _ok(f"all {len(tranches)} tranche entries cite valid evidence_refs")
+
+    _section("41. DRIFT: contract §D Park Phase Discipline clause present")
+    contract_text = (sidecar_root / "contracts" / "builder_constrant_contract.md").read_text(encoding="utf-8")
+    if "Park Phase Discipline" in contract_text and "five artifacts" in contract_text:
+        _ok("contract §D Park Phase Discipline clause present")
+    else:
+        failures.append(_fail("contract §D Park Phase Discipline clause missing — DRIFT"))
+
+    # =============================================================
+    # ONBOARDING GAP CLOSURES (added 2026-05-11)
+    # =============================================================
+
+    import json as _json2
+    _section("42. ONBOARDING: ONBOARDING.md exists at top level")
+    onboarding_path = sidecar_root / "ONBOARDING.md"
+    if onboarding_path.is_file():
+        content = onboarding_path.read_text(encoding="utf-8")
+        if "Reading order" in content and "verification commands" in content.lower():
+            _ok(f"ONBOARDING.md present ({len(content)} chars), covers reading order + commands")
+        else:
+            failures.append(_fail("ONBOARDING.md present but missing reading-order or commands section"))
+    else:
+        failures.append(_fail("ONBOARDING.md missing at top level"))
+
+    _section("43. ONBOARDING: config/toolbox_manifest.json generated at runtime")
+    tbm_path = sidecar_root / "config" / "toolbox_manifest.json"
+    if tbm_path.is_file():
+        tbm = _json2.loads(tbm_path.read_text(encoding="utf-8"))
+        required_keys = ("manifest_version", "zero_context_entry_protocol", "authority_levels",
+                        "projections", "memory_model", "spine_rule", "verification_commands")
+        missing = [k for k in required_keys if k not in tbm]
+        if not missing:
+            _ok(f"toolbox_manifest.json present with all required keys")
+        else:
+            failures.append(_fail(f"toolbox_manifest.json missing keys: {missing}"))
+    else:
+        failures.append(_fail("config/toolbox_manifest.json missing — not generated at boot"))
+
+    _section("44. ONBOARDING: config/tool_manifest.json generated and matches registry")
+    tm_path = sidecar_root / "config" / "tool_manifest.json"
+    if tm_path.is_file():
+        tm = _json2.loads(tm_path.read_text(encoding="utf-8"))
+        if tm.get("tool_count") == state.tool_registry_manager.count():
+            _ok(f"tool_manifest.json tool_count={tm['tool_count']} matches registry")
+        else:
+            failures.append(_fail(
+                f"tool_manifest.json tool_count={tm.get('tool_count')} vs registry "
+                f"={state.tool_registry_manager.count()}"
+            ))
+    else:
+        failures.append(_fail("config/tool_manifest.json missing — not generated at boot"))
+
+    _section("45. ONBOARDING: agent_bootstrap projection is REAL (not stub)")
+    ab = state.projections.read("agent_bootstrap")
+    if ab.rows:
+        row = ab.rows[0]
+        current_tranche = _json2.loads(row.get("current_tranche_scope_json") or "{}")
+        next_steps = _json2.loads(row.get("next_planned_steps_json") or "[]")
+        recent_events = _json2.loads(row.get("recent_events_json") or "[]")
+        tool_index = _json2.loads(row.get("tool_index_json") or "[]")
+        if current_tranche.get("tranche") and current_tranche.get("scope"):
+            _ok(f"agent_bootstrap FUTURE: current_tranche={current_tranche.get('tranche')}")
+        else:
+            failures.append(_fail("agent_bootstrap.current_tranche_scope_json empty"))
+        if next_steps:
+            _ok(f"agent_bootstrap.next_planned_steps has {len(next_steps)} items")
+        else:
+            failures.append(_fail("agent_bootstrap.next_planned_steps_json empty"))
+        if len(recent_events) >= 5:
+            _ok(f"agent_bootstrap PAST: recent_events has {len(recent_events)} entries")
+        else:
+            failures.append(_fail(f"recent_events has only {len(recent_events)}"))
+        if len(tool_index) == state.tool_registry_manager.count():
+            _ok(f"agent_bootstrap PRESENT: tool_index has {len(tool_index)} tools")
+        else:
+            failures.append(_fail("agent_bootstrap.tool_index mismatch"))
+        if row.get("source_plan_hash"):
+            _ok(f"agent_bootstrap META: source_plan_hash={row['source_plan_hash'][:16]}...")
+        else:
+            failures.append(_fail("agent_bootstrap.source_plan_hash empty"))
+    else:
+        failures.append(_fail("agent_bootstrap projection has no rows"))
+
+    _section("46. ONBOARDING: README.md references ONBOARDING.md")
+    readme_text = (sidecar_root / "README.md").read_text(encoding="utf-8")
+    if "ONBOARDING.md" in readme_text:
+        _ok("README.md links to ONBOARDING.md")
+    else:
+        failures.append(_fail("README.md does not link to ONBOARDING.md"))
+
     _section("RESULT")
     if failures:
         print(f"\n  {len(failures)} FAILURE(S):")

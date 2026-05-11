@@ -56,6 +56,7 @@ class ProjectionManager:
         self._builders["journal_timeline"] = self._build_journal_timeline
         self._builders["project_map"] = self._build_project_map
         self._builders["human_dashboard"] = self._build_human_dashboard
+        self._builders["agent_bootstrap"] = self._build_agent_bootstrap
         # Stub builders for other projections (just stamp the timestamp).
         for name in PROJECTION_NAMES:
             if name not in self._builders:
@@ -383,6 +384,153 @@ class ProjectionManager:
             ),
         )
 
+    def _build_agent_bootstrap(self) -> None:
+        """Rebuild proj_agent_bootstrap — PAST + PRESENT + FUTURE per ARCHITECTURE.md §3.6.
+
+        PAST: recent events, recent journal entries, recent decisions.
+        PRESENT: current task, authority, contract status, tools, projections.
+        FUTURE: current tranche scope, next planned steps, active goals,
+                open questions (parsed from IMPLEMENTATION_ROADMAP.md + ARCHITECTURE.md §15).
+        """
+        import hashlib
+        import re
+        from pathlib import Path as _Path
+        ts = now_iso()
+
+        # ---------- PAST -----------------------------------------------------
+        recent_events_rows = self._store.query(
+            "SELECT event_id, operation_intent, actor_id, stream, created_at "
+            "FROM events ORDER BY created_at DESC LIMIT 20;"
+        )
+        recent_events = [dict(r) for r in recent_events_rows]
+
+        recent_journal: list[dict] = []
+        try:
+            jr = self._store.query(
+                "SELECT entry_uid, kind, title, status, importance, created_at "
+                "FROM journal_entries WHERE superseded_by IS NULL "
+                "ORDER BY importance DESC, created_at DESC LIMIT 10;"
+            )
+            recent_journal = [dict(r) for r in jr]
+        except Exception:
+            pass
+
+        recent_decisions: list[dict] = []
+        try:
+            dr = self._store.query(
+                "SELECT entry_uid, title, body, importance, created_at "
+                "FROM journal_entries WHERE kind = 'decision' AND superseded_by IS NULL "
+                "ORDER BY created_at DESC LIMIT 5;"
+            )
+            for r in dr:
+                d = dict(r)
+                body = d.get("body") or ""
+                d["body_excerpt"] = body[:400] + ("..." if len(body) > 400 else "")
+                d.pop("body", None)
+                recent_decisions.append(d)
+        except Exception:
+            pass
+
+        # ---------- PRESENT --------------------------------------------------
+        current_task: dict = {}
+        try:
+            if self._state.active_task:
+                current_task = dict(self._state.active_task)
+        except Exception:
+            pass
+
+        actor_id = "agent:default"
+        authority_summary = {
+            "default_for_agent": "Propose",
+            "default_for_human": "Apply",
+            "current_grants_count": 0,
+        }
+        try:
+            grant_row = self._store.query_one(
+                "SELECT COUNT(*) AS n FROM grants WHERE consumed = 0;"
+            )
+            authority_summary["current_grants_count"] = int(grant_row["n"]) if grant_row else 0
+        except Exception:
+            pass
+
+        contract = self._state.current_contract or {}
+        contract_status = {
+            "contract_id": contract.get("contract_id"),
+            "version": contract.get("version"),
+            "text_hash": contract.get("text_hash"),
+            "ack_count": len(contract.get("acked_by") or []),
+            "acked_by": (contract.get("acked_by") or [])[:10],
+        }
+
+        tool_index: list[dict] = []
+        try:
+            for t in self._state.tool_registry_manager.list_tools():
+                tool_index.append({
+                    "tool_name": t.tool_name,
+                    "mcp_name": t.mcp_name,
+                    "category": t.category,
+                    "required_authority": t.required_authority,
+                    "summary": t.summary,
+                })
+            tool_index.sort(key=lambda x: x["tool_name"])
+        except Exception:
+            pass
+
+        projection_index = list(PROJECTION_NAMES)
+
+        # ---------- FUTURE (parse IMPLEMENTATION_ROADMAP.md) -----------------
+        sidecar_root = _Path(self._state.sidecar_root)
+        roadmap_path = sidecar_root / "IMPLEMENTATION_ROADMAP.md"
+        current_tranche_scope = {}
+        next_planned_steps: list = []
+        active_goals: list = []
+        source_plan_hash = ""
+
+        if roadmap_path.is_file():
+            roadmap_text = roadmap_path.read_text(encoding="utf-8")
+            source_plan_hash = hashlib.sha256(roadmap_text.encode("utf-8")).hexdigest()
+            current_tranche_scope, next_planned_steps, active_goals = _parse_roadmap(roadmap_text)
+
+        # Open questions parsed from ARCHITECTURE.md §15 "Still open" section.
+        open_questions: list[str] = []
+        arch_path = sidecar_root / "ARCHITECTURE.md"
+        if arch_path.is_file():
+            arch_text = arch_path.read_text(encoding="utf-8")
+            open_questions = _parse_open_questions(arch_text)
+
+        # ---------- write the row -------------------------------------------
+        self._store.execute("DELETE FROM proj_agent_bootstrap;")
+        self._store.execute(
+            """
+            INSERT INTO proj_agent_bootstrap(
+                id,
+                recent_events_json, recent_journal_json, recent_decisions_json,
+                current_task_json, authority_json, contract_status_json,
+                tool_index_json, projection_index_json,
+                current_tranche_scope_json, next_planned_steps_json,
+                active_goals_json, open_questions_json,
+                source_plan_path, source_plan_hash, last_refreshed_at
+            ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                safe_json_dumps(recent_events),
+                safe_json_dumps(recent_journal),
+                safe_json_dumps(recent_decisions),
+                safe_json_dumps(current_task),
+                safe_json_dumps(authority_summary),
+                safe_json_dumps(contract_status),
+                safe_json_dumps(tool_index),
+                safe_json_dumps(projection_index),
+                safe_json_dumps(current_tranche_scope),
+                safe_json_dumps(next_planned_steps),
+                safe_json_dumps(active_goals),
+                safe_json_dumps(open_questions),
+                "IMPLEMENTATION_ROADMAP.md",
+                source_plan_hash,
+                ts,
+            ),
+        )
+
     def _stub_builder_for(self, name: str) -> Callable[[], None]:
         """Stub: clear the table and stamp last_refreshed_at via meta key.
 
@@ -417,3 +565,107 @@ class ProjectionManager:
         # Fall back to the stub meta key.
         meta = self._store.get_meta(f"proj_stub_refreshed_at:{name}")
         return meta or ""
+
+
+# ---------------------------------------------------------------------------
+# IMPLEMENTATION_ROADMAP.md and ARCHITECTURE.md §15 parsers
+#
+# Fragile by nature (they rely on Markdown structure) but graceful — if the
+# format drifts, parsers return empty results rather than raising. The drift
+# would show up as empty FUTURE fields in agent_bootstrap, which is a
+# smoke-test-visible drift signal.
+# ---------------------------------------------------------------------------
+
+def _parse_roadmap(text: str) -> tuple[dict, list, list]:
+    """Return (current_tranche_scope, next_planned_steps, active_goals).
+
+    Identifies the next "Tranche N" heading that does NOT contain "✓ COMPLETE",
+    extracts its Scope / Files / Non-goals / Completion criteria subsections.
+    """
+    import re
+    tranche_pattern = re.compile(
+        r"^### \*\*Tranche\s+(?P<num>[\d.]+)\s+—\s+(?P<title>[^*]+?)\*\*(?P<rest>[^\n]*)\n",
+        re.MULTILINE,
+    )
+    matches = list(tranche_pattern.finditer(text))
+
+    current_match = None
+    upcoming: list[dict] = []
+    for i, m in enumerate(matches):
+        rest = m.group("rest") or ""
+        is_complete = "✓ COMPLETE" in rest or "COMPLETE" in rest
+        title = m.group("title").strip()
+        num = m.group("num").strip()
+        if is_complete:
+            continue
+        if current_match is None:
+            current_match = (m, num, title, i)
+        else:
+            upcoming.append({"tranche": f"T{num}", "title": title})
+
+    if current_match is None:
+        return ({}, [], [])
+
+    m, num, title, idx = current_match
+    section_start = m.end()
+    section_end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+    section = text[section_start:section_end]
+
+    def _extract(label: str) -> str:
+        pat = re.compile(
+            rf"\*\*{re.escape(label)}:\*\*(?P<body>.*?)(?=\n\*\*[A-Z]|\n### |\n## |\Z)",
+            re.DOTALL,
+        )
+        match = pat.search(section)
+        return match.group("body").strip() if match else ""
+
+    scope = _extract("Scope")
+    files = _extract("Files implemented") or _extract("Files implemented (~6 additional)")
+    non_goals = _extract("Non-goals")
+    completion = _extract("Completion criteria")
+
+    current_tranche_scope = {
+        "tranche": f"T{num}",
+        "title": title,
+        "scope": scope[:1000] if scope else "",
+        "files_implemented": files[:1500] if files else "",
+        "non_goals": non_goals[:600] if non_goals else "",
+        "completion_criteria": completion[:1000] if completion else "",
+    }
+
+    # next_planned_steps = the bullet/sentence breakdown of the upcoming work.
+    next_steps: list[str] = []
+    if files:
+        # Each file or item per line, stripped of bullets.
+        for line in files.splitlines():
+            line = line.strip().lstrip("-*").strip()
+            if line and len(line) < 200:
+                next_steps.append(line)
+
+    active_goals: list[str] = []
+    if completion:
+        for line in completion.splitlines():
+            line = line.strip().lstrip("-*").strip()
+            if line and len(line) < 300:
+                active_goals.append(line)
+
+    return (current_tranche_scope, next_steps[:30], active_goals[:20])
+
+
+def _parse_open_questions(arch_text: str) -> list[str]:
+    """Extract bullets from the §15 'Still open' subsection."""
+    import re
+    still_open_pat = re.compile(
+        r"### Still open\s*\(deferred to later tranches\)\s*\n(.*?)(?=\n### |\n## |\Z)",
+        re.DOTALL,
+    )
+    m = still_open_pat.search(arch_text)
+    if not m:
+        return []
+    body = m.group(1)
+    questions: list[str] = []
+    for line in body.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            questions.append(stripped[2:].strip()[:250])
+    return questions[:30]

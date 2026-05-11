@@ -142,6 +142,15 @@ def boot(sidecar_root: Path | None = None,
     # Initial projection refresh so reads return populated rows.
     projections.refresh_all()
 
+    # Generate config/toolbox_manifest.json + config/tool_manifest.json.
+    # These are derived state (regeneratable from DB) but live in config/ for
+    # zero-context agent entry per ARCHITECTURE.md §12.3 / contract §D.
+    from src.components.manifest_generator import generate_all as _gen_manifests
+    try:
+        _gen_manifests(state, paths.config)
+    except Exception as e:
+        log.error("manifest generation failed (non-fatal): %s", e)
+
     log.info(
         "boot complete: sidecar_id=%s root=%s project=%s schema=%d events=%d tools=%d",
         state.sidecar_id, sidecar_root, project_root,

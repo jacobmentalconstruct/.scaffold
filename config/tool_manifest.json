@@ -1,0 +1,181 @@
+{
+  "manifest_version": "1.0.0",
+  "generated_at": "2026-05-11T12:03:21.611Z",
+  "sidecar_id": "sc_18ae61e3f9a3edcc_44bb8a5d",
+  "tool_count": 5,
+  "tools": [
+    {
+      "tool_name": "file_tree_snapshot",
+      "version": "1.0.0",
+      "entrypoint": "src/tools/file_tree_snapshot.py",
+      "category": "introspection",
+      "summary": "Snapshot the host project's file tree from project_index.",
+      "mcp_name": "file_tree_snapshot",
+      "required_authority": "Observe",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "file",
+              "directory",
+              "symlink"
+            ],
+            "description": "Optional filter by kind"
+          },
+          "ext": {
+            "type": "string",
+            "description": "Optional file extension filter (e.g. '.py')"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 1000,
+            "description": "Max rows to return"
+          }
+        }
+      },
+      "result_envelope_keys": [
+        "status",
+        "tool",
+        "input",
+        "result"
+      ],
+      "source_hash": "2055d571f3b6feca079701fcf6b7a0550e3b0edc9eb33655a03ce48f471efc61",
+      "registered_at": "2026-05-11T12:03:21.593Z"
+    },
+    {
+      "tool_name": "host_capability_probe",
+      "version": "1.0.0",
+      "entrypoint": "src/tools/host_capability_probe.py",
+      "category": "introspection",
+      "summary": "Probe Python version, platform, and common-tool availability.",
+      "mcp_name": "host_capability_probe",
+      "required_authority": "Observe",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "result_envelope_keys": [
+        "status",
+        "tool",
+        "input",
+        "result"
+      ],
+      "source_hash": "6ff4b8a2091c601394d72cdc557042ec199ef161ec6ce454be5881898e49bb58",
+      "registered_at": "2026-05-11T12:03:21.603Z"
+    },
+    {
+      "tool_name": "read_projection",
+      "version": "1.0.0",
+      "entrypoint": "src/tools/read_projection.py",
+      "category": "query",
+      "summary": "Read a named projection; returns its rows + last_refreshed_at.",
+      "mcp_name": "read_projection",
+      "required_authority": "Observe",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Projection name (e.g. 'project_map')"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 200,
+            "description": "Cap on rows returned"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "result_envelope_keys": [
+        "status",
+        "tool",
+        "input",
+        "result"
+      ],
+      "source_hash": "a8de51b51fa4c4104bf219449bbfbe520fafc93416ad1a4d742dd91abe4ceb9f",
+      "registered_at": "2026-05-11T12:03:21.603Z"
+    },
+    {
+      "tool_name": "text_file_reader",
+      "version": "1.0.0",
+      "entrypoint": "src/tools/text_file_reader.py",
+      "category": "introspection",
+      "summary": "Bounded text read of a host-project file.",
+      "mcp_name": "text_file_reader",
+      "required_authority": "Observe",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path relative to project_root."
+          },
+          "max_bytes": {
+            "type": "integer",
+            "default": 65536,
+            "description": "Cap on bytes to read."
+          },
+          "encoding": {
+            "type": "string",
+            "default": "utf-8"
+          },
+          "line_start": {
+            "type": "integer",
+            "description": "Optional 1-based start line"
+          },
+          "line_end": {
+            "type": "integer",
+            "description": "Optional inclusive end line"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "result_envelope_keys": [
+        "status",
+        "tool",
+        "input",
+        "result"
+      ],
+      "source_hash": "eb082fb2b656d8f855a2a2da03c37e8fe0eb7eaa767b23513832220fb55e3684",
+      "registered_at": "2026-05-11T12:03:21.604Z"
+    },
+    {
+      "tool_name": "workspace_boundary_audit",
+      "version": "1.0.0",
+      "entrypoint": "src/tools/workspace_boundary_audit.py",
+      "category": "introspection",
+      "summary": "Audit project root, sidecar root, and runtime folder containment.",
+      "mcp_name": "workspace_boundary_audit",
+      "required_authority": "Observe",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "result_envelope_keys": [
+        "status",
+        "tool",
+        "input",
+        "result"
+      ],
+      "source_hash": "445bd78ad3f996b0a0fde65f6e837f9da9954f4d0685388c28776490fb78ece9",
+      "registered_at": "2026-05-11T12:03:21.604Z"
+    }
+  ],
+  "categories": {
+    "introspection": [
+      "file_tree_snapshot",
+      "host_capability_probe",
+      "text_file_reader",
+      "workspace_boundary_audit"
+    ],
+    "query": [
+      "read_projection"
+    ]
+  }
+}

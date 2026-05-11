@@ -244,21 +244,64 @@ When the sidecar is first dropped into a new project, the **Setup Phase** must c
 
 The discipline is "setup before features." A fresh agent connecting to a freshly-installed sidecar must complete the acknowledgment step (via `journal_acknowledge` tool) before any other operation than `Observe` is permitted.
 
-### 12.2 Park Phase (tranche closeout)
+### 12.2 Park Phase (tranche closeout) — EXPLICIT and MECHANICALLY ENFORCED
 
-When a tranche of meaningful work completes, the **Park Phase** produces a structured *parking record* that allows the next session (human or agent) to resume cleanly.
+When a tranche of meaningful work completes, the **Park Phase** produces a structured *parking record* that allows the next session (human or agent) to resume cleanly. **The phase is not optional and is not "ritual we remember in conversation"** — it is codified in this section, bound by `contracts/builder_constrant_contract.md §D`, and mechanically enforced by `smoke_test.py` drift-detection sections that fail when any continuity doc is stale.
 
-The phase is owned by `journal_orchestrator.close_tranche` and consists of:
+#### The seven steps
 
-1. **Inspect:** what changed in the sidecar's state and the host project's state since tranche open?
-2. **Verify:** run the smoke test or relevant verification.
-3. **Capture:** generate evidence references for everything verified.
-4. **Journal:** write a `kind='tranche'` entry summarizing scope, non-goals declared at open, completion status, and decisions made.
-5. **Update continuity docs:** refresh `IMPLEMENTATION_ROADMAP.md` (or equivalent) with the tranche's outcome and the next tranche's name.
-6. **Re-verify:** confirm the smoke test still passes after journal writes.
-7. **Report:** emit `task_completed` event; refresh dashboard projection; ready for next tranche.
+1. **Inspect.** Gather metrics for the tranche: files added/modified, lines, new tables, new handlers, new tools, new projection builders, schema migration applied. State and host-project deltas since tranche open.
 
-A parking record is a *structured journal entry plus its evidence chain*. It is what an agent loads on the next session to know "where were we?"
+2. **Verify.** Run `python smoke_test.py`. All sections must PASS before proceeding. If any fail, fix and re-run; do not proceed with Park Phase until verification is green.
+
+3. **Capture.** Write `_docs/T_n_PARK_NOTES.md` (code-time mirror) capturing the inspect output, decisions made at code time, files touched, proving-loop status. Put the file's bytes in `blob_store` via `state.blob_store.put`; record the SHA-256 hash and the post-capture Merkle root.
+
+4. **Journal.** Dispatch a `create_journal_entry` envelope with:
+    - `kind='tranche'`
+    - title `"T_n <subject> — COMPLETE"`
+    - body from `_docs/T_n_PARK_NOTES.md`
+    - `evidence_refs=[{"hash": "<park_notes_hash>", "kind": "external"}]`
+    - tags `["tranche", "closeout", "t_n", ...]`
+    - importance ≥ 8
+    - `related_path` pointing at the park notes file.
+
+5. **Update continuity docs (explicit checklist).** Every item below must be touched, otherwise smoke test drift-detection (step 6) will fail:
+    - **`IMPLEMENTATION_ROADMAP.md`** — mark the tranche `✓ COMPLETE` with metrics + evidence hash + the tranche journal entry's uid + the `task_completed` event id.
+    - **`SOURCE_PROVENANCE.md`** — append a dated entry distinguishing original code from structurally-borrowed patterns; cite evidence hashes; record the new journal entry uid.
+    - **`TOOLS.md`** — regenerate/update so the registered-tools table row count equals `tool_registry` table row count. Any tools added in the tranche get a row here.
+    - **`ARCHITECTURE.md §15`** — add a `Resolved at T_n` subsection listing the open questions this tranche resolved. Carry the still-open list forward.
+    - **`README.md`** — update the top-level status header if it references a prior tranche. The header must reflect current state.
+    - Any other doc with a status banner referencing a prior tranche.
+
+6. **Re-verify.** Run `python smoke_test.py` again. The drift-detection sections (introduced 2026-05-11) verify mechanically that step 5 was performed:
+    - `TOOLS.md` row count equals `tool_registry` count.
+    - `README.md` status header does not name a prior tranche as current.
+    - `ARCHITECTURE.md §15` has `Resolved at T_n` for every completed tranche.
+    - The latest tranche journal entry has `status='closed'` (after step 7).
+    - The latest tranche journal entry's `evidence_refs` cite an existing `blob_store` hash.
+
+   If smoke test fails, the tranche is NOT parked. Fix and repeat from step 5.
+
+7. **Report and close.** In the spine, dispatch in order:
+    - `accept_task` envelope marking the tranche lifecycle (informational).
+    - `complete_task` envelope (correlated to the above by `correlation_id`).
+    - `close_journal_entry` envelope for the tranche entry written in step 4, moving its status from `'open'` → `'closed'`. The tranche entry CONTENT is immutable per Journal Doctrine §13.1; the status change is a non-destructive lifecycle update.
+
+#### What a parking record IS
+
+A complete parking record is the union of five artifacts:
+
+a) The tranche journal entry (`kind='tranche'`, `status='closed'`).
+b) The linked park-notes blob in `blob_store` (cited via `evidence_refs`).
+c) The updated continuity docs (per the §5 checklist).
+d) The `accept_task` + `complete_task` events.
+e) The `close_journal_entry` event for the tranche entry.
+
+If any of the five is missing, the tranche is **not parked**, the next tranche **must not begin**, and `smoke_test.py` drift-detection should be the one to surface it.
+
+#### Why this is contract-bound
+
+Without mechanical enforcement, Park Phase discipline drifts back into conversational ritual within a few sessions. The contract clause (`§D Park Phase Discipline`) makes it a HARD_BLOCK gate violation to begin a new tranche while drift exists. The smoke test makes the violation observable to any agent or human inspecting the codebase cold.
 
 ### 12.3 Collaboration Rhythm
 
@@ -337,6 +380,18 @@ See [`src/managers/constraint_manager.py`](src/managers/constraint_manager.py) f
 - **SQLite pragmas** — RESOLVED: WAL + foreign_keys=ON + busy_timeout=10000 + synchronous=NORMAL.
 - **Bootstrap exception in gate** — RESOLVED: `BOOTSTRAP_EXEMPT_INTENTS` tuple in `contract_schema.py`. The acknowledgment-presence check is bypassed only for these intents and only while no acknowledgment exists.
 - **Two-phase ack/event commit** — RESOLVED: ack rows written with `event_id='PENDING'` inside `handle_acknowledge`, then Router calls `ContractAuthority.finalize_ack_event_id` after `EventStore.append` returns the real id.
+
+### Resolved at T2 (2026-05-11)
+
+- **MCP transport** — RESOLVED: stdio. JSON-RPC 2.0 framed by newline-delimited JSON. Single-process MCP server reads stdin, writes stdout. HTTP transport deferred to Phase 2.
+- **Two-phase pattern generalization** — RESOLVED: the T1 ack-row PENDING pattern was extended to journal entries (`journal_manager.finalize_entry_event_id`) and scan records (`scan_orchestrator.finalize_scan_event_id`). Router has explicit elif chain for each. Will refactor to callback registry if a 4th case appears.
+- **Tool registry architecture** — RESOLVED: dual in-memory + DB. The `tool_registry` table persists metadata + source_hash; an in-memory `dict[tool_name, RegisteredTool]` carries the live `run_fn` callable. Discovery on every boot is idempotent via INSERT...ON CONFLICT.
+- **HARD_BLOCK gate enforcement strategy** — PARTIALLY RESOLVED: the gate (`core/contracts.py`) enforces authority + ack + envelope shape + closed-relation-set; HARD_BLOCK constraint texts are surfaced via `ConstraintManager.query_for_intent` but the gate's `_check_hard_block` is currently advisory (returns None). Specific enforcement (e.g., path containment for `Apply`) lives in the managers/orchestrators that actually mutate the relevant resource. Tools enforce their own `required_authority` inside `tool_registry_manager.handle_invoke`.
+- **Per-file scan events** — RESOLVED (design choice): scan emits ONE event with a summary blob; per-file observations live in `project_index` table. Per-file events would violate Envelope Lightness (Pledge 7). If per-file audit ever needed, add a separate `observe_file` event variant.
+- **Per-file graph edges during scan** — RESOLVED (deferred): graph stays sparse; project_index carries the density. Graph relations land for journal/evidence chains, not for bulk file observations.
+- **Actor identity for MCP sessions** — PARTIALLY RESOLVED: T2.3 uses `agent:mcp:<client_name>` derived from `params._meta.client_name`. Real per-session identity (token-based or capability-based) is deferred to T3+ when MCP sessions become first-class.
+- **Tool source hash drift detection** — RESOLVED: `tool_registry.source_hash` is computed on every discovery; mismatch is logged. Hot-reload-on-mismatch is deferred to when it matters.
+- **Park Phase discipline** — RESOLVED (Decision 2026-05-11, see journal entry `journal_18ae7fbc35603af0_ec2ea642`): the Park Phase is now an explicit checklist in §12.2, contract-bound in `builder_constrant_contract.md §D`, and mechanically enforced by `smoke_test.py` drift-detection sections. No more conversational ritual.
 
 ### Still open (deferred to later tranches)
 

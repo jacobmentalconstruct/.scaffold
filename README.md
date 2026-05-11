@@ -1,7 +1,9 @@
 # `.scaffold/` — Vended Sidecar Package
 
-> **Status:** Tranche 0 — scaffolding & plan files. No executable code yet.
-> Every file in this tree is a prose plan describing what it will become.
+> **Status:** T2 complete (2026-05-11). Spine boot ✓, journal ✓, install + scan ✓, read-only MCP ✓, 5 tools registered, smoke test PASS.
+> See [IMPLEMENTATION_ROADMAP.md](IMPLEMENTATION_ROADMAP.md) for tranche progress. T3 (Tk UI) is next.
+>
+> **New here?** Read **[ONBOARDING.md](ONBOARDING.md)** first — explicit reading order + verification commands.
 
 ## What this is
 
