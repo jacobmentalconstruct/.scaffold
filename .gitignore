@@ -1,0 +1,175 @@
+# =============================================================================
+# .gitignore for the .scaffold/ sidecar package
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Python build / runtime
+# -----------------------------------------------------------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*$py.class
+.venv/
+venv/
+env/
+ENV/
+runtime/
+.dev-tools/runtime/
+
+# Python distributions / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+pip-wheel-metadata/
+
+# Type checker / linter caches
+.mypy_cache/
+.pyre/
+.pytype/
+.ruff_cache/
+.dmypy.json
+dmypy.json
+
+# Test runners / coverage
+.pytest_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.cache/
+nosetests.xml
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# -----------------------------------------------------------------------------
+# OS junk
+# -----------------------------------------------------------------------------
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+
+# -----------------------------------------------------------------------------
+# Editor / IDE
+# -----------------------------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+*.swo
+*.swn
+*.bak
+*.tmp
+*.orig
+*.rej
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# -----------------------------------------------------------------------------
+# Claude Code harness local state (contains absolute user paths and permissions)
+# -----------------------------------------------------------------------------
+.claude/
+
+# -----------------------------------------------------------------------------
+# Sidecar reference materials — read-only precursor sources, not for vending
+# -----------------------------------------------------------------------------
+.parts/
+
+# -----------------------------------------------------------------------------
+# Secrets / credentials — never commit
+# -----------------------------------------------------------------------------
+.env
+.env.*
+*.key
+*.pem
+*.pfx
+*.p12
+*.crt
+credentials.json
+secrets.json
+secrets.yaml
+*.secret
+
+# -----------------------------------------------------------------------------
+# Logs (general)
+# -----------------------------------------------------------------------------
+*.log
+*.log.*
+_logs/
+_projectmapper
+
+# -----------------------------------------------------------------------------
+# Sidecar runtime folders — keep the folder + README + .gitkeep so the tree
+# is preserved, but exclude all generated runtime contents.
+# -----------------------------------------------------------------------------
+
+# data/ — the SQLite spine (generated at first boot)
+data/*
+!data/.gitkeep
+!data/README.md
+
+# logs/ — runtime log files (also covered by *.log above)
+logs/*
+!logs/.gitkeep
+!logs/README.md
+
+# cache/ — derived/regenerable caches
+cache/*
+!cache/.gitkeep
+!cache/README.md
+
+# exports/ — markdown / JSON exports produced under Export authority
+exports/*
+!exports/.gitkeep
+!exports/README.md
+
+# workspaces/ — sandbox workspaces for Sandbox Execute operations
+workspaces/*
+!workspaces/.gitkeep
+!workspaces/README.md
+
+# snapshots/ — point-in-time spine snapshots
+snapshots/*
+!snapshots/.gitkeep
+!snapshots/README.md
+
+# -----------------------------------------------------------------------------
+# SQLite — explicit patterns for generated DB files anywhere in the tree
+# -----------------------------------------------------------------------------
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
