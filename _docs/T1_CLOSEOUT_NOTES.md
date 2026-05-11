@@ -1,5 +1,23 @@
 # T1 Closeout Notes — Spine Boot
 
+> **Status:** ⚠️ SUPERSEDED — 2026-05-11.
+>
+> The proper `kind='tranche'` journal entry has been written as the first act of T2.1, honoring the handoff promise made at T1 close.
+>
+> - **Superseded by journal entry:** `journal_18ae7c440531739c_104fb685`
+> - **Created by event:** `evt_18ae7c44053fd284_7cae64af`
+> - **Recorded at:** `2026-05-11T10:32:14.444Z`
+> - **Cited evidence hash:** `26a89b86a7fcdd1097470e0c5ffda4ca947e5b7b4274c08866b9f2a2e57def28` (this file's content at supersession)
+> - **Look up via:** `python -m src.app cli journal-show journal_18ae7c440531739c_104fb685`
+>
+> This file remains as a code-time artifact — the journal entry is now the authoritative LTM record of T1 close. Going forward, every tranche closes with a proper journal entry; no more degraded Park Phases.
+>
+> Historical record below preserved for context.
+
+---
+
+## Historical record (pre-supersession)
+
 > **Status:** TEMPORARY PARKING RECORD. To be **superseded by a proper journal entry of `kind='tranche'`** as the first act of T2, once `journal_manager` exists. This file exists because Park Phase step 4 (write a journal entry) is blocked at T1 — no journal yet.
 >
 > Per the explicit handoff promise on T2 open: T2's first act is to write the proper journal entry citing the evidence captured here.

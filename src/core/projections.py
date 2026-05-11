@@ -14,7 +14,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Callable, TYPE_CHECKING
 
-from src.lib.common import now_iso, safe_json_dumps
+from src.lib.common import now_iso, safe_json_dumps  # noqa: F401
 from src.lib.logging_setup import get_logger
 from src.schemas.projection_schema import (
     PROJECTION_NAMES,
@@ -53,6 +53,9 @@ class ProjectionManager:
     def _register_builtins(self) -> None:
         self._builders["current_sidecar_state"] = self._build_current_state
         self._builders["contract_status"] = self._build_contract_status
+        self._builders["journal_timeline"] = self._build_journal_timeline
+        self._builders["project_map"] = self._build_project_map
+        self._builders["human_dashboard"] = self._build_human_dashboard
         # Stub builders for other projections (just stamp the timestamp).
         for name in PROJECTION_NAMES:
             if name not in self._builders:
@@ -195,6 +198,187 @@ class ProjectionManager:
                 safe_json_dumps(acks),
                 safe_json_dumps(outstanding),
                 safe_json_dumps(recent),
+                ts,
+            ),
+        )
+
+    def _build_journal_timeline(self) -> None:
+        """Rebuild proj_journal_timeline from journal_entries.
+
+        Excludes superseded entries (those are still in journal_entries
+        but considered prior revisions, not current timeline items).
+        """
+        ts = now_iso()
+        # Check journal_entries exists (T2.1 migration adds it).
+        try:
+            rows = self._store.query(
+                """
+                SELECT entry_uid, kind, source, title, body, created_at,
+                       status, importance, tags_json, related_path,
+                       superseded_by, event_id
+                FROM journal_entries
+                WHERE superseded_by IS NULL
+                ORDER BY created_at DESC;
+                """
+            )
+        except Exception as e:
+            log.warning("journal_timeline builder: journal_entries not available yet (%s); skipping", e)
+            return
+
+        with self._store.transaction():
+            self._store.execute("DELETE FROM proj_journal_timeline;")
+            for r in rows:
+                body = r["body"] or ""
+                excerpt = body[:280] + ("..." if len(body) > 280 else "")
+                # Collect any evidence_refs from the creating event.
+                evidence_refs_json = "[]"
+                if r["event_id"] and r["event_id"] != "PENDING":
+                    ev_row = self._store.query_one(
+                        "SELECT evidence_refs FROM events WHERE event_id = ?;",
+                        (r["event_id"],),
+                    )
+                    if ev_row and ev_row["evidence_refs"]:
+                        evidence_refs_json = ev_row["evidence_refs"]
+                self._store.execute(
+                    """
+                    INSERT INTO proj_journal_timeline(
+                        entry_uid, kind, source, title, body_excerpt,
+                        created_at, status, importance, tags_json,
+                        related_path, evidence_refs_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (
+                        r["entry_uid"], r["kind"], r["source"], r["title"],
+                        excerpt, r["created_at"], r["status"],
+                        int(r["importance"]), r["tags_json"] or "[]",
+                        r["related_path"], evidence_refs_json,
+                    ),
+                )
+        # Stamp a meta key so _read_last_refreshed can find it (multi-row
+        # tables don't have a single last_refreshed_at column).
+        self._store.set_meta(f"proj_stub_refreshed_at:journal_timeline", ts)
+
+    def _build_project_map(self) -> None:
+        """Rebuild proj_project_map from project_index.
+
+        Joins journal_entries (citing files via related_path) and the
+        events table (for last observation) to produce annotated rows.
+        """
+        ts = now_iso()
+        try:
+            rows = self._store.query(
+                """
+                SELECT path, kind, size_bytes, content_hash, last_observed_at
+                FROM project_index
+                ORDER BY path;
+                """
+            )
+        except Exception as e:
+            log.warning("project_map builder: project_index not available yet (%s); skipping", e)
+            return
+
+        with self._store.transaction():
+            self._store.execute("DELETE FROM proj_project_map;")
+            for r in rows:
+                cite_row = self._store.query_one(
+                    "SELECT COUNT(*) AS n FROM journal_entries "
+                    "WHERE related_path = ? AND superseded_by IS NULL;",
+                    (r["path"],),
+                )
+                cite_count = int(cite_row["n"]) if cite_row else 0
+                # Evidence count placeholder: how many events touched this path
+                # via evidence_refs? T2.3 will wire this through evidence_manager.
+                evidence_count = 0
+                self._store.execute(
+                    """
+                    INSERT INTO proj_project_map(
+                        path, kind, size_bytes, content_hash,
+                        last_observed_at, journal_cite_count, evidence_count
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (
+                        r["path"], r["kind"], r["size_bytes"], r["content_hash"],
+                        r["last_observed_at"], cite_count, evidence_count,
+                    ),
+                )
+        self._store.set_meta("proj_stub_refreshed_at:project_map", ts)
+
+    def _build_human_dashboard(self) -> None:
+        """Rebuild proj_human_dashboard.
+
+        T2.2 fills: pending_approvals (empty until T4), recent_journal,
+        unresolved_issues, current_tranche_scope (placeholder until we have
+        a current-tranche notion in journal_meta), last_scan_summary.
+        """
+        ts = now_iso()
+
+        # Recent journal: last 10 non-superseded entries.
+        recent_rows = []
+        try:
+            recent_rows = self._store.query(
+                """
+                SELECT entry_uid, kind, title, status, importance, created_at
+                FROM journal_entries
+                WHERE superseded_by IS NULL
+                ORDER BY created_at DESC LIMIT 10;
+                """
+            )
+        except Exception:
+            recent_rows = []
+        recent_journal = [dict(r) for r in recent_rows]
+
+        unresolved_rows = []
+        try:
+            unresolved_rows = self._store.query(
+                """
+                SELECT entry_uid, kind, title, importance, created_at
+                FROM journal_entries
+                WHERE superseded_by IS NULL AND kind IN ('issue', 'todo') AND status = 'open'
+                ORDER BY importance DESC, created_at DESC LIMIT 20;
+                """
+            )
+        except Exception:
+            unresolved_rows = []
+        unresolved_issues = [dict(r) for r in unresolved_rows]
+
+        # Last scan summary: most recent scan row.
+        last_scan = {}
+        try:
+            row = self._store.query_one(
+                "SELECT scan_id, started_at, finished_at, file_count, "
+                "directory_count, added_count, modified_count, removed_count, "
+                "unchanged_count, status, event_id "
+                "FROM scans ORDER BY started_at DESC LIMIT 1;"
+            )
+            if row:
+                last_scan = dict(row)
+        except Exception:
+            last_scan = {}
+
+        # Current tranche scope: read from meta if set; otherwise empty.
+        tranche_scope = {}
+        scope_meta = self._store.get_meta("current_tranche_scope")
+        if scope_meta:
+            try:
+                tranche_scope = json.loads(scope_meta)
+            except Exception:
+                tranche_scope = {"raw": scope_meta}
+
+        self._store.execute("DELETE FROM proj_human_dashboard;")
+        self._store.execute(
+            """
+            INSERT INTO proj_human_dashboard(
+                id, pending_approvals_json, recent_journal_json,
+                unresolved_issues_json, current_tranche_scope_json,
+                last_scan_summary_json, last_refreshed_at
+            ) VALUES (1, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                safe_json_dumps([]),  # pending approvals — T4
+                safe_json_dumps(recent_journal),
+                safe_json_dumps(unresolved_issues),
+                safe_json_dumps(tranche_scope),
+                safe_json_dumps(last_scan),
                 ts,
             ),
         )

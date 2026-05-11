@@ -1,65 +1,72 @@
 """
 FILE: src/orchestrators/install_orchestrator.py
-ROLE: First-boot installer. Initializes the SQLite spine and seeds defaults.
-WHAT IT DOES (planned): see prose plan below.
+ROLE: First-boot installer. Records the explicit `install` event.
+WHAT IT DOES (T2.2): handles the `install` envelope by emitting a single
+                     install event with a summary payload. Idempotent —
+                     boot calls ensure_installed() which checks
+                     `journal_meta.installed_at` and only dispatches an
+                     install envelope on the very first boot.
 
-================================================================================
-TRANCHE 0 PROSE PLAN — DO NOT EXECUTE
-================================================================================
-
-WORKFLOW
---------
-The first-boot orchestrator. Runs once when `data/sidecar.db` does not
-exist (or when an explicit `reinstall` envelope is approved). Coordinates
-across multiple managers/components to bring a fresh sidecar to life.
-
-STEPS (in order)
-----------------
-1. Resolve sidecar root and host project root from `SidecarState`.
-2. Open SQLite store; run schema creation.
-3. Seed `journal_meta`: schema_version, sidecar_id (generated), project_root,
-   initialized_at.
-4. Read `contracts/builder_constrant_contract.md`; compute hash; write
-   into `blob_store`; create the contract record.
-5. Seed ontology with built-in object types and the closed predicate set.
-6. Write the seed `journal_config.json` and `db_manifest.json` into
-   `config/` (using ContractAuthority-permitted writes since this is
-   bootstrap).
-7. Emit a `project` stream event: `install` with summary.
-8. Construct the agent bootstrap packet projection for the first time.
-9. Hand off to whichever interface invoked install (UI or MCP) with a
-   summary envelope.
-
-OPERATION INTENTS HANDLED
--------------------------
-- `install`
-- `reinstall` (requires Apply authority + human approval)
-
-DEPENDENCIES
-------------
-- Managers: journal_manager, ontology_manager, tool_registry_manager,
-  project_index_manager (for first scan, optional in MVP install).
-- Components: sqlite_store, blob_store.
-
-SPINE FIT
----------
-- Receives the install envelope from Router.
-- Calls into managers via Router (NOT directly), so each step is itself
-  an envelope chain. The bootstrap exception in ContractAuthority allows
-  these initial envelopes through before the first acknowledgment.
-- Returns a result envelope summarizing installed state.
-
-NON-GOALS
----------
-- Does not perform a full project scan automatically — that's
-  `scan_orchestrator`, optionally invoked after install completes.
-- Does not start the UI or MCP server — `app.py` does that after install
-  returns.
-
-OPEN QUESTIONS
---------------
-- Should install offer a "minimal" vs "full" mode? Plan: one install
-  path; scope is set by what the user does next.
-- Idempotency: install on an existing DB should be a no-op with a clear
-  warning. `reinstall` is the explicit destructive variant.
+Most of the heavy lifting (open DB, apply migrations, seed constraints,
+load contract) is already done in app.boot(); this orchestrator just
+records the semantic milestone "the sidecar is initialized as of T."
 """
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from src.core.envelope import SidecarEnvelope
+from src.lib.common import now_iso
+from src.lib.logging_setup import get_logger
+
+
+if TYPE_CHECKING:
+    from src.components.sqlite_store import Store
+    from src.core.state import SidecarState
+
+
+log = get_logger("orchestrators.install")
+
+
+INSTALLED_AT_KEY = "installed_at"
+
+
+class InstallOrchestrator:
+    def __init__(self, store: "Store"):
+        self._store = store
+
+    def handle_install(self, envelope: SidecarEnvelope, state: "SidecarState") -> SidecarEnvelope:
+        summary = {
+            "sidecar_id": state.sidecar_id,
+            "schema_version": self._store.schema_version(),
+            "project_root": str(state.project_root),
+            "sidecar_root": str(state.sidecar_root),
+            "initialized_at": now_iso(),
+            "contract_hash": (state.current_contract or {}).get("text_hash"),
+        }
+        summary_ref = state.blob_store.put_json(summary)
+        self._store.set_meta(INSTALLED_AT_KEY, summary["initialized_at"])
+        log.info("install recorded: sidecar_id=%s project_root=%s",
+                 summary["sidecar_id"], summary["project_root"])
+        return envelope.with_status("completed").with_payload_ref(summary_ref)
+
+    def is_installed(self) -> bool:
+        return self._store.get_meta(INSTALLED_AT_KEY) is not None
+
+    def ensure_installed(self, state: "SidecarState",
+                         actor_id: str = "system") -> SidecarEnvelope | None:
+        """Idempotent: dispatch an install envelope if not already installed."""
+        if self.is_installed():
+            return None
+        envelope = SidecarEnvelope.new(
+            object_type="sidecar_install",
+            actor_id=actor_id,
+            operation_intent="install",
+        )
+        result = state.router.dispatch(envelope)
+        if result.status in ("accepted", "completed"):
+            log.info("first-boot install dispatched: event_id=%s", result.event_id)
+        else:
+            log.error("first-boot install failed: status=%s", result.status)
+        return result

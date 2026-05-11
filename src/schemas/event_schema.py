@@ -91,6 +91,7 @@ INTENT_STREAM: dict[str, str] = {
     "archive_journal_entry": "object",
     "acknowledge_contract": "object",
     "observe_file": "object",
+    "observe_git": "object",
     "record_observed_file": "object",
     "attach_evidence": "object",
     "verify_evidence": "object",

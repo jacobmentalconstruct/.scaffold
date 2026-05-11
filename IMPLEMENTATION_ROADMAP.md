@@ -129,6 +129,11 @@ Per [INCORPORATION_INVENTORY.md §2.1](_docs/INCORPORATION_INVENTORY.md):
 
 **Handoff promise:** T2's first act is to write a proper `kind='tranche'` journal entry that supersedes the closeout notes, citing the evidence hash above. After that, the Park Phase becomes automatic for all subsequent tranches.
 
+**Handoff HONORED (2026-05-11, T2.1 first act):**
+- T1 closeout journal entry written: `journal_18ae7c440531739c_104fb685`
+- Created by event: `evt_18ae7c44053fd284_7cae64af`
+- `_docs/T1_CLOSEOUT_NOTES.md` marked SUPERSEDED with banner pointing to the entry.
+
 ---
 
 **Scope:** Build the spine so envelopes can be accepted, gated, recorded, and trigger projection refresh. Nothing useful happens yet — but the machinery works.
@@ -153,7 +158,39 @@ Per [INCORPORATION_INVENTORY.md §2.1](_docs/INCORPORATION_INVENTORY.md):
 
 ---
 
-### **Tranche 2 — Install + Scan + Journal + read-only MCP**
+### **Tranche 2 — Install + Scan + Journal + read-only MCP** — ✓ COMPLETE (2026-05-11)
+
+**Status:** COMPLETE. Smoke test 35/35 PASS. **First proper Park Phase** (non-degraded — journal_manager existed throughout T2 close).
+
+**Sub-tranche breakdown:** T2.1 (Journal layer + handoff) → T2.2 (Install + Scan + Project Index) → T2.3 (Git + Evidence + Tools + MCP).
+
+**Metrics:**
+- New code files: ~25 (~5,000 additional lines)
+- DB migrations applied: v2 (T2.1), v3 (T2.2), v4 (T2.3) — schema went 19 → 27 tables
+- Handlers registered: 12 new (13 total including T1's ack)
+- Tools registered (auto-discovered): 5 (file_tree_snapshot, host_capability_probe, text_file_reader, workspace_boundary_audit, read_projection)
+- Projection builders real: 5 of 7 (current_sidecar_state, contract_status, journal_timeline, project_map, human_dashboard); 2 still stubs (agent_bootstrap, evidence_bag — defer to T3)
+- CLI subcommands: 17 total
+- MCP stdio server functional: `python -m src.app mcp` exposes tools/list, tools/call, resources/list, resources/read, initialize, ping
+
+**Evidence (CAS):**
+- T2 closeout notes blob hash: `9f87dcf37c9f3f7e4d5e3dedca00233a13ce375d8d8b46bc3810fd43e3703d71` (9,001 bytes, text/markdown)
+- Source: [`_docs/T2_PARK_NOTES.md`](_docs/T2_PARK_NOTES.md)
+- Merkle root after T2 close: `10cdf883593b558b5f835cd06ba0bacc43c8b3f56a474694f946233b1bc8d937`
+
+**T2 closeout journal entry (kind='tranche'):**
+- `entry_uid`: `journal_18ae7f230a832584_7211d04a`
+- `event_id`: `evt_18ae7f230a894518_fa9d9a7e`
+- Title: "T2 Install + Scan + Journal + MCP — COMPLETE"
+
+**Park Phase task events:**
+- `accept_task`: `evt_18ae7f25a0923054_29a027ea`
+- `complete_task`: `evt_18ae7f25a0a1dd9c_c235e8d0`
+- `correlation_id` binding: `cor_18ae7f25a08afaa0_90f7365f`
+
+**Proving loop status:** ~70% complete. Steps 1–4 + 6 + 8 working end-to-end; per-file graph edges (step 5) deferred as design choice; agent_bootstrap projection (step 7) still stub; Tk UI human inspection (step 9) in T3.
+
+---
 
 **Scope:** First proving-loop walk: install, scan a project, journal it, expose projections via MCP. The sidecar becomes self-aware (its own LTM accumulates).
 

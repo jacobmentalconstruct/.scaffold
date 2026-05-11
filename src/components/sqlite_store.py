@@ -193,10 +193,186 @@ _CORE_DDL: tuple[str, ...] = (
 )
 
 
+# ----------------------------------------------------------------------------
+# Migration v2 — T2.1: journal_entries (LTM activation)
+# ----------------------------------------------------------------------------
+
+_T2_1_DDL: tuple[str, ...] = (
+    """
+    CREATE TABLE IF NOT EXISTS journal_entries (
+        entry_uid TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        source TEXT NOT NULL,
+        author TEXT,
+        status TEXT NOT NULL DEFAULT 'open',
+        importance INTEGER NOT NULL DEFAULT 5,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        body_hash TEXT NOT NULL,
+        tags_json TEXT,
+        related_path TEXT,
+        related_ref TEXT,
+        metadata_json TEXT,
+        project_id TEXT,
+        superseded_by TEXT,
+        event_id TEXT NOT NULL
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_journal_kind ON journal_entries(kind);",
+    "CREATE INDEX IF NOT EXISTS idx_journal_status ON journal_entries(status);",
+    "CREATE INDEX IF NOT EXISTS idx_journal_created ON journal_entries(created_at);",
+    "CREATE INDEX IF NOT EXISTS idx_journal_event ON journal_entries(event_id);",
+    "CREATE INDEX IF NOT EXISTS idx_journal_importance ON journal_entries(importance);",
+)
+
+
+# ----------------------------------------------------------------------------
+# Migration v3 — T2.2: project_index + scans (Install + Scan)
+# ----------------------------------------------------------------------------
+
+_T2_2_DDL: tuple[str, ...] = (
+    """
+    CREATE TABLE IF NOT EXISTS project_index (
+        path TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        size_bytes INTEGER,
+        content_hash TEXT,
+        ext TEXT,
+        mtime TEXT,
+        last_observed_at TEXT NOT NULL,
+        last_observed_event TEXT,
+        last_observed_scan TEXT,
+        observe_count INTEGER NOT NULL DEFAULT 1,
+        annotation_json TEXT
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_project_index_kind ON project_index(kind);",
+    "CREATE INDEX IF NOT EXISTS idx_project_index_hash ON project_index(content_hash);",
+    "CREATE INDEX IF NOT EXISTS idx_project_index_ext ON project_index(ext);",
+    "CREATE INDEX IF NOT EXISTS idx_project_index_scan ON project_index(last_observed_scan);",
+    """
+    CREATE TABLE IF NOT EXISTS scans (
+        scan_id TEXT PRIMARY KEY,
+        project_root TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        file_count INTEGER NOT NULL DEFAULT 0,
+        directory_count INTEGER NOT NULL DEFAULT 0,
+        added_count INTEGER NOT NULL DEFAULT 0,
+        modified_count INTEGER NOT NULL DEFAULT 0,
+        removed_count INTEGER NOT NULL DEFAULT 0,
+        unchanged_count INTEGER NOT NULL DEFAULT 0,
+        actor_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'in_progress',
+        event_id TEXT,
+        summary_blob_ref TEXT
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_scans_started ON scans(started_at);",
+    "CREATE INDEX IF NOT EXISTS idx_scans_status ON scans(status);",
+)
+
+
+# ----------------------------------------------------------------------------
+# Migration v4 — T2.3: git observation + evidence + tool_registry
+# ----------------------------------------------------------------------------
+
+_T2_3_DDL: tuple[str, ...] = (
+    """
+    CREATE TABLE IF NOT EXISTS git_observations (
+        observation_id TEXT PRIMARY KEY,
+        observed_at TEXT NOT NULL,
+        actor_id TEXT NOT NULL,
+        is_repo INTEGER NOT NULL,
+        branch TEXT,
+        head_sha TEXT,
+        detached INTEGER,
+        dirty_count INTEGER,
+        ahead INTEGER,
+        behind INTEGER,
+        remote TEXT,
+        remote_url TEXT,
+        event_id TEXT
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_git_obs_at ON git_observations(observed_at);",
+    "CREATE INDEX IF NOT EXISTS idx_git_obs_event ON git_observations(event_id);",
+    """
+    CREATE TABLE IF NOT EXISTS git_dirty_paths (
+        observation_id TEXT NOT NULL,
+        path TEXT NOT NULL,
+        status TEXT NOT NULL,
+        PRIMARY KEY (observation_id, path)
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_git_dirty_obs ON git_dirty_paths(observation_id);",
+    """
+    CREATE TABLE IF NOT EXISTS evidence (
+        evidence_id TEXT PRIMARY KEY,
+        hash TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        summary TEXT,
+        source_event TEXT,
+        source_path TEXT,
+        source_line_range TEXT,
+        attached_to_object TEXT,
+        attached_to_type TEXT,
+        status TEXT NOT NULL DEFAULT 'attached',
+        created_at TEXT NOT NULL,
+        verified_at TEXT,
+        actor_id TEXT NOT NULL
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_evidence_hash ON evidence(hash);",
+    "CREATE INDEX IF NOT EXISTS idx_evidence_kind ON evidence(kind);",
+    "CREATE INDEX IF NOT EXISTS idx_evidence_attached ON evidence(attached_to_object);",
+    """
+    CREATE TABLE IF NOT EXISTS tool_registry (
+        tool_name TEXT PRIMARY KEY,
+        version TEXT NOT NULL,
+        entrypoint TEXT NOT NULL,
+        category TEXT NOT NULL,
+        summary TEXT,
+        mcp_name TEXT NOT NULL,
+        required_authority TEXT NOT NULL,
+        input_schema_json TEXT,
+        source_hash TEXT,
+        registered_at TEXT NOT NULL,
+        last_invoked_at TEXT
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_tool_category ON tool_registry(category);",
+    "CREATE INDEX IF NOT EXISTS idx_tool_mcp ON tool_registry(mcp_name);",
+    """
+    CREATE TABLE IF NOT EXISTS tool_invocations (
+        invocation_id TEXT PRIMARY KEY,
+        tool_name TEXT NOT NULL,
+        envelope_id TEXT,
+        event_id TEXT,
+        actor_id TEXT NOT NULL,
+        arguments_ref TEXT,
+        result_ref TEXT,
+        status TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        error_summary TEXT
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_tool_inv_name ON tool_invocations(tool_name);",
+    "CREATE INDEX IF NOT EXISTS idx_tool_inv_status ON tool_invocations(status);",
+    "CREATE INDEX IF NOT EXISTS idx_tool_inv_event ON tool_invocations(event_id);",
+)
+
+
 # Migration registry: version → (description, list of statements).
 # Migrations run in version order, idempotent.
 _MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
     (1, "T1 spine boot — core tables + projection tables", _CORE_DDL),
+    (2, "T2.1 LTM activation — journal_entries table + indices", _T2_1_DDL),
+    (3, "T2.2 Install + Scan — project_index + scans tables", _T2_2_DDL),
+    (4, "T2.3 Git + Evidence + Tool Registry", _T2_3_DDL),
 )
 
 

@@ -130,7 +130,11 @@ INTENT_AFFECTS_PROJECTIONS: dict[str, tuple[str, ...]] = {
     "scan": ("project_map", "current_sidecar_state", "human_dashboard"),
     "rescan_path": ("project_map",),
     "observe_file": ("project_map",),
+    "observe_git": ("human_dashboard",),
     "record_observed_file": ("project_map",),
+
+    "tool_invoked": ("current_sidecar_state",),
+    "tool_result": ("current_sidecar_state",),
 
     "create_journal_entry": ("journal_timeline", "human_dashboard", "agent_bootstrap"),
     "update_journal_entry": ("journal_timeline",),

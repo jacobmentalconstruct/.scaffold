@@ -94,6 +94,39 @@ A bundle of structural borrows committed during the planning phase. Full per-ite
 
 ---
 
+### 2026-05-11 — Tranche 2 implementation (Install + Scan + Journal + MCP) — ORIGINAL CODE
+
+- **Status:** T2 ✓ COMPLETE. Smoke test 35/35 PASS. **First proper (non-degraded) Park Phase** — journal entry written as the closeout artifact, no temp banner needed.
+- **Type:** Original implementation. **No precursor source files copied during T2.** All ~5,000 lines of code are fresh, following the prose plans and informed by the structural patterns recorded in the prior provenance entry.
+- **Sub-tranches:**
+  - **T2.1 (Journal layer + handoff):** journal_manager, journal_orchestrator, journal_timeline projection, migration v2. **T1 handoff HONORED** — proper `kind='tranche'` journal entry replaced the T1 degraded Park Phase artifact.
+  - **T2.2 (Install + Scan + Project Index):** file_scanner, project_index_manager, install_orchestrator (idempotent), scan_orchestrator, project_map + human_dashboard builders, migration v3.
+  - **T2.3 (Git + Evidence + Tools + MCP):** git_reader, git_state_manager, evidence_manager, tool_registry_manager (auto-discovery), agent_task_orchestrator (skeleton), 5 tools, mcp_interface (read-only MCP stdio), migration v4.
+- **Files implemented (T2):**
+  - `src/managers/`: journal_manager, project_index_manager, evidence_manager, git_state_manager, tool_registry_manager
+  - `src/orchestrators/`: journal_orchestrator (basic), install_orchestrator, scan_orchestrator, agent_task_orchestrator (skeleton)
+  - `src/components/`: file_scanner, git_reader
+  - `src/interfaces/`: mcp_interface
+  - `src/tools/`: file_tree_snapshot, workspace_boundary_audit, host_capability_probe, text_file_reader, read_projection
+  - Major updates: sqlite_store (migrations v2/v3/v4), state, app, router (scan finalize), projections (3 real builders), cli_interface (~12 subcommands), schemas (event + contract + projection mappings extended)
+- **Patterns from precursor (no code copied):**
+  - Tool registry pattern (FILE_METADATA + run + source_hash) mirrors precursor's tool manifest discipline.
+  - Two-phase commit for journal/scan/git observations (PENDING → real event_id post-EventStore.append) — extends T1's ack pattern.
+  - Read-only MCP shape — generic; no precursor code reused.
+- **Resolved code-time decisions:** see `_docs/T2_PARK_NOTES.md` § "Decisions made at code time" (10 items). Highlights: per-file scan events DEFERRED (envelope lightness), graph edges during scan DEFERRED, tool registry dual in-memory+DB, MCP actor resolution from `_meta.client_name`, HARD_BLOCK gate still advisory (tools enforce their own required_authority).
+- **Evidence captured (CAS):**
+  - T2 closeout notes blob hash: `9f87dcf37c9f3f7e4d5e3dedca00233a13ce375d8d8b46bc3810fd43e3703d71` (9,001 bytes)
+  - Merkle root of `blob_store` after T2 close: `10cdf883593b558b5f835cd06ba0bacc43c8b3f56a474694f946233b1bc8d937`
+  - Schema version: 4
+  - Tool registry: 5 tools
+  - 25 blobs in CAS
+- **T2 closeout journal entry:** `journal_18ae7f230a832584_7211d04a` (created by event `evt_18ae7f230a894518_fa9d9a7e`).
+- **T2 task lifecycle events:** `accept_task` (`evt_18ae7f25a0923054_29a027ea`) → `complete_task` (`evt_18ae7f25a0a1dd9c_c235e8d0`), correlation_id `cor_18ae7f25a08afaa0_90f7365f`.
+- **Approved by:** user (this conversation, T2 greenlight + sub-tranche greenlights).
+- **Next:** T3 — Tk UI surfaces. Real `agent_bootstrap` projection builder. Standing by.
+
+---
+
 ## Conventions
 
 - One entry per re-homing event. Append-only.

@@ -41,6 +41,16 @@ class UnrouteableEnvelope(Exception):
     """Raised when no handler is registered for an operation_intent."""
 
 
+_JOURNAL_INTENTS = frozenset({
+    "create_journal_entry",
+    "update_journal_entry",
+    "close_journal_entry",
+    "archive_journal_entry",
+})
+
+_SCAN_INTENTS = frozenset({"scan", "rescan_path"})
+
+
 class Router:
     def __init__(
         self,
@@ -49,12 +59,16 @@ class Router:
         event_store: "EventStore",
         graph: "Graph",
         projections: "ProjectionManager",
+        journal_manager=None,    # T2.1+: needed to finalize journal entry event_ids
+        scan_orchestrator=None,  # T2.2+: needed to finalize scan event_ids
     ):
         self._state = state
         self._contract = contract_authority
         self._events = event_store
         self._graph = graph
         self._projections = projections
+        self._journal = journal_manager
+        self._scan_orchestrator = scan_orchestrator
         self._handlers: dict[str, HandlerEntry] = {}
 
     # --- registration --------------------------------------------------
@@ -133,6 +147,18 @@ class Router:
         # 3a. Special: tie ack rows to their event_id.
         if envelope.operation_intent == "acknowledge_contract":
             self._contract.finalize_ack_event_id(envelope.actor_id, sealed.event_id)
+        # 3b. Special: tie journal entries to their event_id (PENDING → real).
+        elif envelope.operation_intent in _JOURNAL_INTENTS and self._journal is not None:
+            try:
+                self._journal.finalize_entry_event_id(sealed)
+            except Exception as e:
+                log.error("journal finalize failed for event %s: %s", sealed.event_id, e)
+        # 3c. Special: tie scan records to their event_id.
+        elif envelope.operation_intent in _SCAN_INTENTS and self._scan_orchestrator is not None:
+            try:
+                self._scan_orchestrator.finalize_scan_event_id(sealed)
+            except Exception as e:
+                log.error("scan finalize failed for event %s: %s", sealed.event_id, e)
 
         # 4. Apply graph relations from envelope's relation_refs.
         try:

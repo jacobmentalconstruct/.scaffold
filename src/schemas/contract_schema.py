@@ -109,6 +109,7 @@ INTENT_REQUIRED_AUTHORITY: dict[str, str] = {
     "scan": "Observe",
     "rescan_path": "Observe",
     "observe_file": "Observe",
+    "observe_git": "Observe",
     "record_observed_file": "Observe",
     "snapshot": "Apply",
     "project_map_updated": "Observe",

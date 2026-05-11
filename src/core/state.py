@@ -29,6 +29,15 @@ class SidecarState:
     constraint_manager: Any = None
     contract_authority: Any = None
     projections: Any = None
+    journal_manager: Any = None
+    project_index_manager: Any = None
+    evidence_manager: Any = None
+    git_state_manager: Any = None
+    tool_registry_manager: Any = None
+    file_scanner: Any = None
+    install_orchestrator: Any = None
+    scan_orchestrator: Any = None
+    agent_task_orchestrator: Any = None
     router: Any = None
 
     # Live registries (read-mostly; updated by event commit).
