@@ -127,6 +127,33 @@ A bundle of structural borrows committed during the planning phase. Full per-ite
 
 ---
 
+### 2026-05-11 — Tranche 2.5 (Active Tranche Ledger) — ORIGINAL CODE
+
+- **Status:** T2.5 ✓ COMPLETE. Smoke test 51/51 PASS. Pre-T3 architectural enhancement added at user request: "push a button and the docs almost fully update themselves."
+- **Type:** Original implementation. **No precursor source files copied.**
+- **New files:**
+  - `src/managers/tranche_manager.py` — owns `decision_records` + `active_tranche` tables; handles `declare_tranche`, `update_tranche`, `record_decision`, `smoke_pass`; provides `build_checklist(state)` for projection + closeout gating.
+  - `src/orchestrators/closeout_orchestrator.py` — handles `close_tranche`; reads accumulated ledger data, compiles Markdown park notes, creates + closes the tranche journal entry, seals the tranche. The "compile-and-seal" implementation of Park Phase §D.
+- **Modified files:**
+  - `src/components/sqlite_store.py` — migration v5 (`decision_records` + `active_tranche` tables + indices).
+  - `src/schemas/projection_schema.py` — `tranche_checklist` added to `PROJECTION_NAMES` (8th projection); new `INTENT_AFFECTS_PROJECTIONS` entries for T2.5 intents.
+  - `src/core/projections.py` — `_build_tranche_checklist` builder added; calls `state.tranche_manager.build_checklist`.
+  - `src/core/router.py` — `_TRANCHE_DECLARE_INTENTS` + `_DECISION_INTENTS` added to the finalization elif chain (3d and 3e branches); `_tranche_manager` reference added.
+  - `src/managers/journal_manager.py` — `create_direct` + `close_direct` methods added (bypass path for orchestrators).
+  - `src/app.py` — wired `TrancheManager`, `CloseoutOrchestrator`; 5 new handlers registered; `router._tranche_manager` set.
+  - `src/interfaces/cli_interface.py` — 7 new CLI commands (`tranche-declare`, `tranche-status`, `tranche-update`, `tranche-close`, `tranche-smoke-pass`, `decision-record`, `decision-list`).
+  - `smoke_test.py` — §33 projection count updated (7→dynamic); §47–51 added (migration v5 check, table existence, projection query, handler registration, round-trip test).
+- **Architecture documents updated:** ARCHITECTURE.md §3.7 (Active Tranche Ledger), §15 (Resolved at T2.5); IMPLEMENTATION_ROADMAP.md (T2.5 complete block); ONBOARDING.md (tranche commands + CLI reference updated); SOURCE_PROVENANCE.md (this entry).
+- **Design decisions captured:**
+  - "capture once, derive many" principle — `DecisionRecord` is the atom; park notes, journal body, and bootstrap PAST field all derive from it.
+  - `create_direct` / `close_direct` bypass on `JournalManager` for orchestrators — documents the exception to the envelope-only rule for internal choreography.
+  - Checklist items `park_notes_written` and `journal_entry_closed` are produced BY `close_tranche` — excluded from the pre-close gate, included in the post-close seal check.
+  - Smoke test idempotency: smoke-test tranche cleaned up at §51 start to allow repeated runs.
+- **Approved by:** user (this conversation, T2.5 design session).
+- **Next:** T3 — Tk UI. The tranche-declare + tranche-close workflow now provides the "Park Tranche" button that T3's Tk UI will wire to.
+
+---
+
 ## Conventions
 
 - One entry per re-homing event. Append-only.

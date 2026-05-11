@@ -70,6 +70,11 @@ python -m src.app cli tool-list
 python -m src.app cli scan-status
 python -m src.app cli git-status
 
+# Active Tranche Ledger (T2.5+)
+python -m src.app cli tranche-status        # current tranche + live checklist
+python -m src.app cli decision-list         # decisions recorded this tranche
+python -m src.app cli projection tranche_checklist   # raw checklist projection
+
 # Smoke-test the full stack (the gate that says "this is in good order")
 python smoke_test.py
 ```
@@ -118,14 +123,54 @@ When designing anything that persists, ask: STM, Bag, or LTM?
 
 ## How to close a tranche (the codified ritual)
 
-Per **contract §D / ARCHITECTURE.md §12.2** — five required artifacts, mechanically enforced by `smoke_test.py`:
+Per **contract §D / ARCHITECTURE.md §12.2 + §3.7** — all five Park Phase artifacts are now produced by the `close_tranche` envelope (the "push a button" path). Manual steps are kept for reference.
 
-1. Write `_docs/T_n_PARK_NOTES.md` (the inspect output).
-2. Capture: put the notes file in `blob_store` (via a CLI one-liner); record the hash.
-3. Journal: `python -m src.app cli journal-write --kind tranche --title "..." --body-file _docs/T_n_PARK_NOTES.md --evidence-hash <hash> --importance 8 ...`
-4. Update continuity docs: `IMPLEMENTATION_ROADMAP.md`, `SOURCE_PROVENANCE.md`, `TOOLS.md` (if any new tools), `ARCHITECTURE.md §15` (new `Resolved at T_n` block), `README.md` status header.
-5. Report: `accept_task` → `complete_task` → `close_journal_entry` envelopes (the last one moves the tranche entry from `'open'` to `'closed'`).
-6. Re-run `python smoke_test.py` — must PASS. The drift-detection sections (36–41+) verify the docs.
+### Active Tranche Ledger path (T2.5+, recommended)
+
+During the tranche, capture work as you go:
+```bash
+# Declare the tranche at the start (creates the ledger record):
+python -m src.app cli tranche-declare --actor "human:you" --title "T3 Tk UI" \
+    --scope "Build Tkinter UI panels reading projections" \
+    --completion-criteria "python -m src.app ui opens dashboard"
+
+# Record decisions as they happen:
+python -m src.app cli decision-record --actor "human:you" \
+    --title "Use ttk.Notebook for panel tabs" \
+    --context "Need a container for 4 panels" \
+    --rationale "ttk is stdlib; consistent with contract Pledge 1" \
+    --outcome "ttk.Notebook with state/journal/evidence/project_map tabs" \
+    --area "architecture"
+
+# Note files changed (optional — close_tranche still works without):
+python -m src.app cli tranche-update --actor "human:you" \
+    --file "src/ui/main_window.py:added"
+
+# Check readiness at any time:
+python -m src.app cli tranche-status
+
+# After smoke test passes, record it:
+python smoke_test.py  # must exit 0
+python -m src.app cli tranche-smoke-pass --actor "human:you"
+
+# Push the button — compile notes, create journal entry, seal ledger:
+python -m src.app cli tranche-close --actor "human:you"
+```
+
+At close, the orchestrator:
+1. Validates the checklist (contract acked, scope declared, smoke passed)
+2. Compiles `_docs/Tn_PARK_NOTES.md` from the structured ledger data
+3. Creates + closes the tranche journal entry with evidence refs
+4. Seals the `active_tranche` record (status → 'parked')
+5. Updates continuity meta key
+
+### Manual path (pre-T2.5 reference, still valid)
+1. Write `_docs/T_n_PARK_NOTES.md` manually.
+2. Capture: `python -m src.app cli ...`; record the blob hash.
+3. Journal: `python -m src.app cli journal-write --kind tranche --title "..." --body-file _docs/T_n_PARK_NOTES.md --evidence-hash <hash> --importance 8`
+4. Update continuity docs: `IMPLEMENTATION_ROADMAP.md`, `SOURCE_PROVENANCE.md`, `TOOLS.md`, `ARCHITECTURE.md §15`, `README.md`.
+5. Close: `accept_task` → `complete_task` → `close_journal_entry`.
+6. Re-run `python smoke_test.py` — must PASS.
 
 If `smoke_test.py` fails after Park Phase, **the tranche is not parked.** Fix and repeat.
 

@@ -50,6 +50,10 @@ _JOURNAL_INTENTS = frozenset({
 
 _SCAN_INTENTS = frozenset({"scan", "rescan_path"})
 
+# T2.5: Tranche Ledger intents that need PENDING → real event_id finalization.
+_TRANCHE_DECLARE_INTENTS = frozenset({"declare_tranche"})
+_DECISION_INTENTS = frozenset({"record_decision"})
+
 
 class Router:
     def __init__(
@@ -69,6 +73,7 @@ class Router:
         self._projections = projections
         self._journal = journal_manager
         self._scan_orchestrator = scan_orchestrator
+        self._tranche_manager = None    # set in app.py after construction
         self._handlers: dict[str, HandlerEntry] = {}
 
     # --- registration --------------------------------------------------
@@ -159,6 +164,20 @@ class Router:
                 self._scan_orchestrator.finalize_scan_event_id(sealed)
             except Exception as e:
                 log.error("scan finalize failed for event %s: %s", sealed.event_id, e)
+        # 3d. Special: tie active_tranche rows to their event_id.
+        elif envelope.operation_intent in _TRANCHE_DECLARE_INTENTS \
+                and self._tranche_manager is not None:
+            try:
+                self._tranche_manager.finalize_declare_event_id(sealed)
+            except Exception as e:
+                log.error("tranche finalize failed for event %s: %s", sealed.event_id, e)
+        # 3e. Special: tie decision_record rows to their event_id.
+        elif envelope.operation_intent in _DECISION_INTENTS \
+                and self._tranche_manager is not None:
+            try:
+                self._tranche_manager.finalize_decision_event_id(sealed)
+            except Exception as e:
+                log.error("decision finalize failed for event %s: %s", sealed.event_id, e)
 
         # 4. Apply graph relations from envelope's relation_refs.
         try:

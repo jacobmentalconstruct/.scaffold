@@ -534,10 +534,15 @@ def main() -> int:
     rl_msg = {"jsonrpc": "2.0", "id": 3, "method": "resources/list", "params": {}}
     rl_resp = mcp.handle_message(rl_msg)
     resources = (rl_resp or {}).get("result", {}).get("resources", [])
-    if len(resources) == 7:
+    # T2.5 adds tranche_checklist → 8 projections total.
+    from src.schemas.projection_schema import PROJECTION_NAMES as _PROJ_NAMES
+    expected_resource_count = len(_PROJ_NAMES)
+    if len(resources) == expected_resource_count:
         _ok(f"resources/list returned {len(resources)} projections")
     else:
-        failures.append(_fail(f"resources/list returned {len(resources)} (expected 7)"))
+        failures.append(_fail(
+            f"resources/list returned {len(resources)} (expected {expected_resource_count})"
+        ))
 
     _section("34. T2.3 MCP handler: tools/call (host_capability_probe)")
     tc_msg = {
@@ -633,13 +638,24 @@ def main() -> int:
 
     _section("40. DRIFT: every tranche entry cites at least one evidence_ref")
     drift_count = 0
+    import json as _json
     for entry in tranches:
         ev_row = state.store.query_one(
             "SELECT evidence_refs FROM events WHERE event_id = ?;", (entry.event_id,)
         )
-        import json as _json
         ev_refs = _json.loads(ev_row["evidence_refs"]) if ev_row and ev_row["evidence_refs"] else []
         valid = [ref for ref in ev_refs if state.blob_store.exists(ref.get("hash", ""))]
+        if not valid:
+            # Fallback: check journal entry metadata for park_notes_blob_ref.
+            # close_tranche entries embed the blob ref in metadata rather than
+            # on the creating event (the hash is only known after the close runs).
+            raw_meta = entry.metadata
+            if isinstance(raw_meta, str):
+                raw_meta = _json.loads(raw_meta)
+            meta = raw_meta if isinstance(raw_meta, dict) else {}
+            park_ref = meta.get("park_notes_blob_ref", "")
+            if park_ref and state.blob_store.exists(park_ref):
+                valid = [{"hash": park_ref, "kind": "park_notes_metadata"}]
         if not valid:
             failures.append(_fail(
                 f"tranche entry {entry.entry_uid} ({entry.title}) has no resolvable evidence_ref"
@@ -658,6 +674,8 @@ def main() -> int:
     # =============================================================
     # ONBOARDING GAP CLOSURES (added 2026-05-11)
     # =============================================================
+
+    from src.lib.common import now_iso
 
     import json as _json2
     _section("42. ONBOARDING: ONBOARDING.md exists at top level")
@@ -736,6 +754,152 @@ def main() -> int:
         _ok("README.md links to ONBOARDING.md")
     else:
         failures.append(_fail("README.md does not link to ONBOARDING.md"))
+
+    # =============================================================
+    # T2.5 ACTIVE TRANCHE LEDGER (added 2026-05-11)
+    # =============================================================
+    # Verifies that migration v5, the new tables, the tranche_checklist
+    # projection, and the close_tranche handler are all in place.
+    # =============================================================
+
+    _section("47. T2.5: migration v5 applied — decision_records table exists")
+    try:
+        state.store.query("SELECT COUNT(*) AS n FROM decision_records;")
+        _ok("decision_records table exists (migration v5)")
+    except Exception as e:
+        failures.append(_fail(f"decision_records table missing: {e}"))
+
+    _section("48. T2.5: migration v5 applied — active_tranche table exists")
+    try:
+        state.store.query("SELECT COUNT(*) AS n FROM active_tranche;")
+        _ok("active_tranche table exists (migration v5)")
+    except Exception as e:
+        failures.append(_fail(f"active_tranche table missing: {e}"))
+
+    _section("49. T2.5: tranche_checklist projection is queryable")
+    try:
+        cl = state.projections.read("tranche_checklist")
+        _ok(f"tranche_checklist projection returned {len(cl.rows)} rows "
+            f"(last_refreshed={cl.last_refreshed_at[:19] if cl.last_refreshed_at else '?'})")
+        # Verify the checklist has the expected items when a tranche IS declared.
+        # No tranche is active in a fresh smoke run; rows may be empty or 9 items.
+        # Just verify the projection is alive (no exception = pass).
+    except Exception as e:
+        failures.append(_fail(f"tranche_checklist projection failed: {e}"))
+
+    _section("50. T2.5: close_tranche handler registered + declare/decision handlers present")
+    router_handlers = state.router.handlers()
+    required_t25 = ("declare_tranche", "update_tranche", "record_decision",
+                    "smoke_pass", "close_tranche")
+    missing_handlers = [h for h in required_t25 if h not in router_handlers]
+    if not missing_handlers:
+        _ok(f"all T2.5 handlers registered: {list(required_t25)}")
+    else:
+        failures.append(_fail(f"missing T2.5 handlers: {missing_handlers}"))
+
+    # Quick round-trip: declare a tranche, record a decision, check checklist updates.
+    _section("51. T2.5: round-trip — declare tranche + record decision")
+    try:
+        # Idempotent setup: seal any leftover smoke-test tranche from a prior run.
+        stale = state.store.query(
+            "SELECT tranche_id FROM active_tranche "
+            "WHERE status = 'active' AND title LIKE 'T_SMOKE%';"
+        )
+        for _row in stale:
+            state.store.execute(
+                "UPDATE active_tranche SET status = 'parked', closed_at = ? "
+                "WHERE tranche_id = ?;",
+                (now_iso(), _row["tranche_id"]),
+            )
+        if stale:
+            state.store.set_meta("current_tranche_scope", "{}")
+            _ok(f"cleaned up {len(stale)} stale smoke-test tranche(s)")
+
+        td_request = {
+            "title": "T_SMOKE Active Tranche Ledger Test",
+            "scope": "Smoke-test round-trip for T2.5 plumbing.",
+            "non_goals": "Not a real tranche.",
+            "completion_criteria": "smoke_test PASS",
+        }
+        td_payload = state.blob_store.put_json(td_request)
+        # Use human:smoketest which is already acked by §5 above.
+        td_env = SidecarEnvelope.new(
+            object_type="tranche",
+            actor_id="human:smoketest",
+            operation_intent="declare_tranche",
+            payload_ref=td_payload,
+        )
+        td_result = state.router.dispatch(td_env)
+        if td_result.status not in ("accepted", "completed"):
+            failures.append(_fail(f"declare_tranche status={td_result.status}"))
+        else:
+            td_response = state.blob_store.get_json(td_result.payload_ref)
+            tranche_id = td_response.get("tranche_id")
+            _ok(f"declare_tranche: tranche_id={tranche_id}")
+
+            # Record a decision.
+            dr_request = {
+                "title": "Use typed DecisionRecord objects for Park Phase notes",
+                "context": "Smoke test context",
+                "rationale": "Enables compile-and-seal vs. reconstruct-and-write",
+                "outcome": "DecisionRecord → decision_records table",
+                "impact_area": "architecture",
+                "importance": 8,
+            }
+            dr_payload = state.blob_store.put_json(dr_request)
+            dr_env = SidecarEnvelope.new(
+                object_type="decision",
+                actor_id="human:smoketest",
+                operation_intent="record_decision",
+                payload_ref=dr_payload,
+            )
+            dr_result = state.router.dispatch(dr_env)
+            if dr_result.status not in ("accepted", "completed"):
+                failures.append(_fail(f"record_decision status={dr_result.status}"))
+            else:
+                dr_response = state.blob_store.get_json(dr_result.payload_ref)
+                _ok(f"record_decision: decision_id={dr_response.get('decision_id')}")
+
+            # Check checklist reflects the state.
+            cl_after = state.projections.read("tranche_checklist")
+            tranche_declared_row = next(
+                (r for r in cl_after.rows if r.get("item_id") == "tranche_declared"), None
+            )
+            if tranche_declared_row and tranche_declared_row.get("status") == "pass":
+                _ok("tranche_checklist: tranche_declared=pass after declare")
+            else:
+                failures.append(_fail(
+                    f"tranche_checklist: tranche_declared status="
+                    f"{(tranche_declared_row or {}).get('status')!r}"
+                ))
+            decisions_row = next(
+                (r for r in cl_after.rows if r.get("item_id") == "decisions_recorded"), None
+            )
+            if decisions_row and decisions_row.get("status") in ("pass", "warn"):
+                _ok(f"tranche_checklist: decisions_recorded={decisions_row['status']}")
+            else:
+                failures.append(_fail(
+                    f"tranche_checklist: decisions_recorded status="
+                    f"{(decisions_row or {}).get('status')!r}"
+                ))
+
+            # Clean up: seal the smoke-test tranche so subsequent runs can declare again.
+            # (Status → 'parked', bypassing full closeout since this is a test fixture.)
+            try:
+                state.store.execute(
+                    "UPDATE active_tranche SET status = 'parked', closed_at = ? "
+                    "WHERE tranche_id = ?;",
+                    (state.store.get_meta("installed_at") or "cleanup",  # any timestamp
+                     tranche_id),
+                )
+                state.store.set_meta("current_tranche_scope", "{}")
+                _ok(f"smoke-test tranche sealed (idempotent cleanup)")
+            except Exception as cleanup_e:
+                _ok(f"cleanup warning (non-fatal): {cleanup_e}")
+    except Exception as e:
+        import traceback as _tb
+        _tb.print_exc()
+        failures.append(_fail(f"T2.5 round-trip failed: {e}"))
 
     _section("RESULT")
     if failures:

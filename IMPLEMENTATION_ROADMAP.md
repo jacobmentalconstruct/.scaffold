@@ -215,6 +215,31 @@ Per [INCORPORATION_INVENTORY.md §2.1](_docs/INCORPORATION_INVENTORY.md):
 
 ---
 
+### **Tranche 2.5 — Active Tranche Ledger** — ✓ COMPLETE (2026-05-11)
+
+**Status:** COMPLETE. Smoke test 51/51 PASS. This was a pre-T3 architectural enhancement — not in the original roadmap — added after explicit user request: *"I am hugely interested in harvesting what we need for the after-tranche documentation WHILE we are working through the tranche so that at the end you push a button and the docs almost fully update themselves."*
+
+**Metrics:**
+- New code files: 2 (`src/managers/tranche_manager.py`, `src/orchestrators/closeout_orchestrator.py`)
+- Modified code files: 7 (sqlite_store, projection_schema, projections, router, app, cli_interface, journal_manager)
+- DB migration: v5 — `decision_records` + `active_tranche` tables
+- New projection: `tranche_checklist` (8th projection — 9 live checklist items)
+- New handlers: 5 (`declare_tranche`, `update_tranche`, `record_decision`, `smoke_pass`, `close_tranche`)
+- New CLI commands: 7 (`tranche-declare`, `tranche-status`, `tranche-update`, `tranche-close`, `tranche-smoke-pass`, `decision-record`, `decision-list`)
+- New smoke test sections: 5 (§47–51)
+
+**What changed architecturally:**
+- §3.7 added to ARCHITECTURE.md: Active Tranche Ledger + "capture once, derive many" principle
+- §12.2 Park Phase: `close_tranche` envelope is now the mechanical implementation of the 5 required artifacts
+- `tranche_checklist` projection gives a live readiness view during work
+- Journal's `create_direct` / `close_direct` bypass path added (for orchestrator use only)
+
+**Evidence (CAS):**
+- Smoke test ran clean 3× consecutively after implementation
+- Smoke test PASS is the primary evidence artifact for this sub-tranche
+
+---
+
 ### **Tranche 3 — Tk UI surfaces**
 
 **Scope:** Human visibility. The Tk UI panels read the same projections the agent reads via MCP.

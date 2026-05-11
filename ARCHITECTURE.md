@@ -94,6 +94,35 @@ This is why the `agent_bootstrap` projection (see [`src/schemas/projection_schem
 
 The "plan" is itself a piece of LTM, but it has a special role: it is the only LTM content that is *forward-looking by nature*. The journal and events record the past; the projections describe the present; the plan describes the intended future. Keeping the agent's perception of the plan consistent with what the journal and event log show is the job of the bootstrap projection's forward fields — they're regenerated every time `IMPLEMENTATION_ROADMAP.md` revises or a tranche closes.
 
+### 3.7 Active Tranche Ledger — "capture once, derive many"
+
+Added at T2.5 (2026-05-11). The problem it solves: the Park Phase rituals in §12.2 historically required reconstructing park notes from scratch at tranche close — a manual, error-prone process that produced drift.
+
+The Active Tranche Ledger makes documentation **a continuous accumulation, not a final reconstruction**:
+
+| Concept | Where it lives | What it captures |
+|---|---|---|
+| **`active_tranche`** table | `data/sidecar.db` | Single active tranche object: declared_scope, non_goals, completion_criteria, files_changed, tests_run, deviations, open_questions, evidence_refs |
+| **`decision_records`** table | `data/sidecar.db` | Typed decisions: title, context, rationale, outcome, impact_area, alternatives, evidence_refs |
+| **`proj_tranche_checklist`** projection | `data/sidecar.db` | Live readiness check — 9 items, each 'pass'/'fail'/'warn'/'pending' |
+| **`close_tranche`** envelope | `closeout_orchestrator.py` | Reads the ledger, compiles park notes, writes `_docs/Tn_PARK_NOTES.md`, creates + closes tranche journal entry, seals ledger |
+
+**The workflow:**
+1. `tranche-declare` → creates `active_tranche` row with scope + goals.
+2. During work: `decision-record` captures typed decisions as they happen.
+3. `tranche-update` appends files_changed, deviations, open_questions.
+4. `tranche-smoke-pass` records a smoke test PASS in tests_run.
+5. `tranche-status` shows the live checklist (are required items satisfied?).
+6. `tranche-close` — the "push a button" step. Reads all accumulated data, compiles Markdown park notes, creates + closes the tranche journal entry, seals the ledger. All 5 Park Phase artifacts are produced atomically.
+
+**Principle:** *capture once, derive many.* A single `DecisionRecord` feeds:
+- The `decision_records` table (queryable by future agents)
+- The compiled park notes (`_docs/Tn_PARK_NOTES.md`)
+- The tranche journal body
+- The `agent_bootstrap.recent_decisions` PAST field
+
+The `tranche_checklist` projection is the live gate. Before `close_tranche` runs, required items must all be 'pass'. After `close_tranche`, the entire checklist should be green.
+
 ---
 
 ## 4. The MVP-5 (+ ConstraintManager)
@@ -392,6 +421,13 @@ See [`src/managers/constraint_manager.py`](src/managers/constraint_manager.py) f
 - **Actor identity for MCP sessions** — PARTIALLY RESOLVED: T2.3 uses `agent:mcp:<client_name>` derived from `params._meta.client_name`. Real per-session identity (token-based or capability-based) is deferred to T3+ when MCP sessions become first-class.
 - **Tool source hash drift detection** — RESOLVED: `tool_registry.source_hash` is computed on every discovery; mismatch is logged. Hot-reload-on-mismatch is deferred to when it matters.
 - **Park Phase discipline** — RESOLVED (Decision 2026-05-11, see journal entry `journal_18ae7fbc35603af0_ec2ea642`): the Park Phase is now an explicit checklist in §12.2, contract-bound in `builder_constrant_contract.md §D`, and mechanically enforced by `smoke_test.py` drift-detection sections. No more conversational ritual.
+
+### Resolved at T2.5 (2026-05-11)
+
+- **Park Phase documentation gap** — RESOLVED: the Active Tranche Ledger (`active_tranche` + `decision_records` tables, `tranche_checklist` projection, `close_tranche` orchestrator) replaces manual Park Phase documentation reconstruction with a "compile-and-seal" model. Decisions are captured as typed `DecisionRecord` objects during the tranche; `tranche-close` compiles the park notes programmatically. See §3.7 and `src/managers/tranche_manager.py`, `src/orchestrators/closeout_orchestrator.py`.
+- **Two-phase PENDING pattern — 4th and 5th cases** — RESOLVED: `declare_tranche` → `TrancheManager.finalize_declare_event_id` and `record_decision` → `TrancheManager.finalize_decision_event_id` added to the Router elif chain. Contract noted in the T2 entry: "Will refactor to callback registry if a 4th case appears." That case appeared; refactor deferred to T3+ (the 5 cases are all explicitly handled).
+- **Tranche checklist as live projection** — RESOLVED: `proj_tranche_checklist` added to `PROJECTION_NAMES` (8 projections total). Builder reads `TrancheManager.build_checklist(state)` which evaluates 9 items including `contract_acked`, `tranche_declared`, `scope_declared`, `smoke_test_passed`, and Park Phase completion items.
+- **Decision capture during work** — RESOLVED: `decision-record` CLI command creates typed `DecisionRecord` with context/rationale/outcome/impact_area/alternatives. Records are queryable via `decision-list` and are automatically included in compiled park notes.
 
 ### Still open (deferred to later tranches)
 

@@ -366,6 +366,62 @@ _T2_3_DDL: tuple[str, ...] = (
 )
 
 
+# ----------------------------------------------------------------------------
+# Migration v5 — T2.5: Active Tranche Ledger (pre-T3 enhancement)
+# Adds decision_records (typed decisions captured during work) and
+# active_tranche (live accumulating object for the current tranche).
+# These power the tranche_checklist projection and close_tranche orchestrator.
+# ----------------------------------------------------------------------------
+
+_T2_5_DDL: tuple[str, ...] = (
+    """
+    CREATE TABLE IF NOT EXISTS decision_records (
+        decision_id TEXT PRIMARY KEY,
+        tranche_id TEXT,
+        title TEXT NOT NULL,
+        context TEXT NOT NULL DEFAULT '',
+        rationale TEXT NOT NULL DEFAULT '',
+        outcome TEXT NOT NULL DEFAULT '',
+        impact_area TEXT NOT NULL DEFAULT '',
+        alternatives_json TEXT NOT NULL DEFAULT '[]',
+        evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+        tags_json TEXT NOT NULL DEFAULT '[]',
+        importance INTEGER NOT NULL DEFAULT 5,
+        actor_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        event_id TEXT NOT NULL
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_decision_tranche ON decision_records(tranche_id);",
+    "CREATE INDEX IF NOT EXISTS idx_decision_actor ON decision_records(actor_id);",
+    "CREATE INDEX IF NOT EXISTS idx_decision_created ON decision_records(created_at);",
+    """
+    CREATE TABLE IF NOT EXISTS active_tranche (
+        tranche_id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        declared_scope TEXT NOT NULL DEFAULT '',
+        declared_non_goals TEXT NOT NULL DEFAULT '',
+        declared_completion_criteria TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'active',
+        started_at TEXT NOT NULL,
+        closed_at TEXT,
+        files_changed_json TEXT NOT NULL DEFAULT '[]',
+        decisions_count INTEGER NOT NULL DEFAULT 0,
+        evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+        tests_run_json TEXT NOT NULL DEFAULT '[]',
+        deviations_json TEXT NOT NULL DEFAULT '[]',
+        open_questions_json TEXT NOT NULL DEFAULT '[]',
+        next_tranche_candidate TEXT,
+        park_notes_blob_ref TEXT,
+        journal_entry_uid TEXT,
+        actor_id TEXT NOT NULL,
+        event_id TEXT NOT NULL
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_active_tranche_status ON active_tranche(status);",
+)
+
+
 # Migration registry: version → (description, list of statements).
 # Migrations run in version order, idempotent.
 _MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
@@ -373,6 +429,7 @@ _MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
     (2, "T2.1 LTM activation — journal_entries table + indices", _T2_1_DDL),
     (3, "T2.2 Install + Scan — project_index + scans tables", _T2_2_DDL),
     (4, "T2.3 Git + Evidence + Tool Registry", _T2_3_DDL),
+    (5, "T2.5 Active Tranche Ledger — decision_records + active_tranche", _T2_5_DDL),
 )
 
 

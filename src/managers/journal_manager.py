@@ -283,6 +283,64 @@ class JournalManager:
             out = [e for e in out if any(tag_contains in t for t in (e.tags or []))]
         return out
 
+    # ===== Direct write API (for orchestrators) =========================
+
+    def create_direct(
+        self,
+        kind: str,
+        title: str,
+        body: str,
+        actor_id: str,
+        importance: int = 8,
+        tags: list | None = None,
+        evidence_refs: list | None = None,
+        event_id: str = "DIRECT",
+        metadata: dict | None = None,
+    ) -> str:
+        """Write a journal entry directly without an envelope.
+
+        Intended for orchestrators (e.g. CloseoutOrchestrator) that coordinate
+        multiple managers in sequence and cannot re-enter the Router.
+        Returns entry_uid.
+        """
+        if kind not in VALID_KINDS:
+            raise ValueError(f"invalid kind: {kind!r}")
+        entry_uid = gen_id("journal_")
+        now = now_iso()
+        body_hash = self._blob.put_text(body, content_type="text/markdown")
+        source = "agent" if actor_id.startswith("agent:") else "user"
+        self._store.execute(
+            """
+            INSERT INTO journal_entries(
+                entry_uid, created_at, updated_at, kind, source, author,
+                status, importance, title, body, body_hash, tags_json,
+                related_path, related_ref, metadata_json, project_id,
+                superseded_by, event_id
+            ) VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, NULL, NULL, ?, NULL, NULL, ?);
+            """,
+            (
+                entry_uid, now, now, kind, source, actor_id,
+                importance, title, body, body_hash,
+                safe_json_dumps(tags or []),
+                safe_json_dumps(metadata or {}),
+                event_id,
+            ),
+        )
+        log.info("journal entry created (direct): uid=%s kind=%s title=%r", entry_uid, kind, title)
+        return entry_uid
+
+    def close_direct(self, entry_uid: str, event_id: str | None = None) -> None:
+        """Close a journal entry directly without an envelope."""
+        params: list = ["closed", now_iso(), entry_uid]
+        sql = "UPDATE journal_entries SET status = ?, updated_at = ? WHERE entry_uid = ?;"
+        self._store.execute(sql, params)
+        if event_id:
+            self._store.execute(
+                "UPDATE journal_entries SET event_id = ? WHERE entry_uid = ? AND event_id = 'DIRECT';",
+                (event_id, entry_uid),
+            )
+        log.info("journal entry closed (direct): uid=%s", entry_uid)
+
     def recent(self, limit: int = 20) -> list[JournalEntry]:
         return self.query(limit=limit, include_superseded=False)
 

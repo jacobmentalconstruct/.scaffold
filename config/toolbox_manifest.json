@@ -3,7 +3,7 @@
   "sidecar_name": "scaffold-sidecar",
   "sidecar_version": "0.1.0",
   "sidecar_id": "sc_18ae61e3f9a3edcc_44bb8a5d",
-  "generated_at": "2026-05-11T12:03:21.611Z",
+  "generated_at": "2026-05-11T20:35:44.932Z",
   "sidecar_root_marker": ".scaffold",
   "host_invariant": "the host project does not import from .scaffold/",
   "zero_context_entry_protocol": {
@@ -72,7 +72,8 @@
     "evidence_bag",
     "human_dashboard",
     "journal_timeline",
-    "project_map"
+    "project_map",
+    "tranche_checklist"
   ],
   "event_streams": [
     "project",
@@ -95,10 +96,10 @@
     "python -m src.app cli journal-query --kind tranche",
     "python smoke_test.py"
   ],
-  "schema_version": 4,
-  "event_count": 102,
+  "schema_version": 5,
+  "event_count": 246,
   "tool_count": 5,
-  "journal_count": 17,
+  "journal_count": 33,
   "linked_resources": {
     "tool_manifest": "config/tool_manifest.json",
     "sidecar_db": "data/sidecar.db",

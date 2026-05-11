@@ -57,6 +57,7 @@ class ProjectionManager:
         self._builders["project_map"] = self._build_project_map
         self._builders["human_dashboard"] = self._build_human_dashboard
         self._builders["agent_bootstrap"] = self._build_agent_bootstrap
+        self._builders["tranche_checklist"] = self._build_tranche_checklist
         # Stub builders for other projections (just stamp the timestamp).
         for name in PROJECTION_NAMES:
             if name not in self._builders:
@@ -530,6 +531,49 @@ class ProjectionManager:
                 ts,
             ),
         )
+
+    def _build_tranche_checklist(self) -> None:
+        """Rebuild proj_tranche_checklist from active_tranche + decision_records.
+
+        Each row is one ChecklistItem evaluated against current DB state.
+        The projection is the live readiness indicator for the Park Phase.
+        Items with required=1 must all be 'pass' before close_tranche proceeds.
+        """
+        ts = now_iso()
+        try:
+            tranche_manager = getattr(self._state, "tranche_manager", None)
+            if tranche_manager is None:
+                # T2.5 not wired yet — write an empty projection.
+                self._store.execute("DELETE FROM proj_tranche_checklist;")
+                self._store.set_meta("proj_stub_refreshed_at:tranche_checklist", ts)
+                return
+
+            items = tranche_manager.build_checklist(self._state)
+        except Exception as e:
+            log.warning("tranche_checklist builder failed: %s", e)
+            self._store.set_meta("proj_stub_refreshed_at:tranche_checklist", ts)
+            return
+
+        with self._store.transaction():
+            self._store.execute("DELETE FROM proj_tranche_checklist;")
+            for item in items:
+                self._store.execute(
+                    """
+                    INSERT INTO proj_tranche_checklist(
+                        item_id, label, category, status, detail, checked_at, required
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (
+                        item.item_id,
+                        item.label,
+                        item.category,
+                        item.status,
+                        item.detail or "",
+                        item.checked_at,
+                        1 if item.required else 0,
+                    ),
+                )
+        self._store.set_meta("proj_stub_refreshed_at:tranche_checklist", ts)
 
     def _stub_builder_for(self, name: str) -> Callable[[], None]:
         """Stub: clear the table and stamp last_refreshed_at via meta key.

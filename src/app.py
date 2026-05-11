@@ -38,8 +38,10 @@ from src.managers.journal_manager import JournalManager
 from src.managers.project_index_manager import ProjectIndexManager
 from src.managers.tool_registry_manager import ToolRegistryManager
 from src.orchestrators.agent_task_orchestrator import AgentTaskOrchestrator
+from src.orchestrators.closeout_orchestrator import CloseoutOrchestrator
 from src.orchestrators.install_orchestrator import InstallOrchestrator
 from src.orchestrators.scan_orchestrator import ScanOrchestrator
+from src.managers.tranche_manager import TrancheManager
 
 
 def boot(sidecar_root: Path | None = None,
@@ -81,9 +83,11 @@ def boot(sidecar_root: Path | None = None,
     git_state_manager = GitStateManager(store, git_reader)
     tool_registry_manager = ToolRegistryManager(store, blob, paths.src / "tools")
     file_scanner = FileScanner()
+    tranche_manager = TrancheManager(store, blob)
     install_orch = InstallOrchestrator(store)
     scan_orch = ScanOrchestrator(file_scanner, project_index_manager, blob)
     agent_task_orch = AgentTaskOrchestrator(journal_manager, blob)
+    closeout_orch = CloseoutOrchestrator(tranche_manager, journal_manager, blob)
     router = Router(
         state, contracts, events, graph, projections,
         journal_manager=journal_manager,
@@ -91,6 +95,7 @@ def boot(sidecar_root: Path | None = None,
     )
     router._tool_registry = tool_registry_manager  # type: ignore[attr-defined]
     router._git_state = git_state_manager  # type: ignore[attr-defined]
+    router._tranche_manager = tranche_manager  # type: ignore[attr-defined]
 
     # Wire references onto state for handler access.
     state.events = events
@@ -107,6 +112,8 @@ def boot(sidecar_root: Path | None = None,
     state.install_orchestrator = install_orch
     state.scan_orchestrator = scan_orch
     state.agent_task_orchestrator = agent_task_orch
+    state.tranche_manager = tranche_manager
+    state.closeout_orchestrator = closeout_orch
     state.router = router
 
     # Seed constraints (idempotent) from the binding contract.
@@ -132,6 +139,11 @@ def boot(sidecar_root: Path | None = None,
     router.register("tool_invoked", tool_registry_manager.handle_invoke, kind="manager")
     router.register("accept_task", agent_task_orch.handle_accept_task, kind="orchestrator")
     router.register("complete_task", agent_task_orch.handle_complete_task, kind="orchestrator")
+    router.register("declare_tranche", tranche_manager.handle_declare_tranche, kind="manager")
+    router.register("update_tranche", tranche_manager.handle_update_tranche, kind="manager")
+    router.register("record_decision", tranche_manager.handle_record_decision, kind="manager")
+    router.register("smoke_pass", tranche_manager.handle_smoke_pass, kind="manager")
+    router.register("close_tranche", closeout_orch.handle_close_tranche, kind="orchestrator")
 
     # Discover and register tools from src/tools/.
     tool_registry_manager.discover_all()

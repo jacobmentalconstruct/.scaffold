@@ -14,7 +14,8 @@ from __future__ import annotations
 PROJECTION_SCHEMA_VERSION = "1.0.0"
 
 
-# All seven day-one projections (per ARCHITECTURE.md §9).
+# All projections.  Seven day-one projections (per ARCHITECTURE.md §9) plus
+# tranche_checklist (added T2.5 — Active Tranche Ledger).
 PROJECTION_NAMES = (
     "current_sidecar_state",
     "agent_bootstrap",
@@ -23,6 +24,7 @@ PROJECTION_NAMES = (
     "contract_status",
     "project_map",
     "journal_timeline",
+    "tranche_checklist",
 )
 
 
@@ -117,6 +119,18 @@ PROJECTION_COLUMNS: dict[str, tuple[str, ...]] = {
         "related_path TEXT",
         "evidence_refs_json TEXT",
     ),
+    # Added T2.5 — Active Tranche Ledger
+    "tranche_checklist": (
+        "item_id TEXT PRIMARY KEY",
+        "label TEXT NOT NULL",
+        "category TEXT NOT NULL",
+        # 'pass' | 'fail' | 'pending' | 'warn'
+        "status TEXT NOT NULL",
+        "detail TEXT",
+        "checked_at TEXT",
+        # 1 = required for close_tranche to proceed; 0 = informational only
+        "required INTEGER NOT NULL DEFAULT 1",
+    ),
 }
 
 
@@ -152,6 +166,15 @@ INTENT_AFFECTS_PROJECTIONS: dict[str, tuple[str, ...]] = {
 
     "accept_task": ("current_sidecar_state", "human_dashboard"),
     "complete_task": ("current_sidecar_state", "human_dashboard"),
+
+    # T2.5 Active Tranche Ledger
+    "declare_tranche": ("tranche_checklist", "human_dashboard", "agent_bootstrap"),
+    "update_tranche":  ("tranche_checklist",),
+    "record_decision": ("tranche_checklist", "agent_bootstrap"),
+    "smoke_pass":      ("tranche_checklist",),
+    "close_tranche":   (
+        "tranche_checklist", "human_dashboard", "agent_bootstrap", "journal_timeline",
+    ),
 }
 
 

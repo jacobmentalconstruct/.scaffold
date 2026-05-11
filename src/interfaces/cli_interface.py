@@ -129,6 +129,62 @@ def _build_parser() -> argparse.ArgumentParser:
     p_call.add_argument("--input-json", help="Arguments as inline JSON.")
     p_call.add_argument("--input-file", help="Arguments as path to JSON file.")
 
+    # ---- tranche ledger (T2.5) ----------------------------------------
+    p_td = sub.add_parser("tranche-declare", help="Declare a new active tranche.")
+    p_td.add_argument("--actor", required=True, help="Actor id.")
+    p_td.add_argument("--title", required=True, help="Tranche title (e.g. 'T3 Tk UI').")
+    p_td.add_argument("--scope", default="", help="Declared scope summary.")
+    p_td.add_argument("--non-goals", default="", help="What this tranche will NOT do.")
+    p_td.add_argument("--completion-criteria", default="", help="What 'done' means.")
+    p_td.add_argument("--next", default="", dest="next_tranche",
+                      help="Name of the next planned tranche.")
+
+    sub.add_parser("tranche-status", help="Show current active tranche + checklist.")
+
+    p_tu = sub.add_parser("tranche-update", help="Append data to the active tranche ledger.")
+    p_tu.add_argument("--actor", required=True, help="Actor id.")
+    p_tu.add_argument("--file", action="append", default=[],
+                      help="File changed: 'path:change_type' e.g. src/foo.py:modified (repeatable).")
+    p_tu.add_argument("--deviation", action="append", default=[],
+                      help="Scope deviation: 'description|reason' (repeatable).")
+    p_tu.add_argument("--question", action="append", default=[],
+                      help="Open question to carry forward (repeatable).")
+
+    p_tc = sub.add_parser("tranche-close", help="Run the Park Phase closeout.")
+    p_tc.add_argument("--actor", required=True, help="Actor id.")
+    p_tc.add_argument("--dry-run", action="store_true",
+                      help="Compile notes + validate but don't write files.")
+    p_tc.add_argument("--skip-smoke-check", action="store_true",
+                      help="Skip the smoke-test-passed gate (use when smoke runs separately).")
+    p_tc.add_argument("--extra-notes", default="", help="Freeform text appended to park notes.")
+    p_tc.add_argument("--with-ollama", action="store_true",
+                      help="Use a local Ollama model to generate prose park notes "
+                           "(falls back to template compiler if model unavailable).")
+    p_tc.add_argument("--ollama-model", default="qwen3.5:9b",
+                      help="Ollama model name (default: qwen3.5:9b). "
+                           "Only used when --with-ollama is set.")
+    p_tc.add_argument("--ollama-num-predict", type=int, default=8192,
+                      help="Max tokens the model may generate (default: 8192). "
+                           "Lower values reduce GPU memory pressure.")
+
+    p_tsp = sub.add_parser("tranche-smoke-pass", help="Record a smoke test PASS for the active tranche.")
+    p_tsp.add_argument("--actor", required=True, help="Actor id.")
+    p_tsp.add_argument("--test-name", default="smoke_test.py", help="Test name.")
+    p_tsp.add_argument("--details", default="", help="Optional details.")
+
+    p_dr = sub.add_parser("decision-record", help="Record a typed decision.")
+    p_dr.add_argument("--actor", required=True, help="Actor id.")
+    p_dr.add_argument("--title", required=True, help="Decision title (the choice made).")
+    p_dr.add_argument("--context", default="", help="What problem were we solving?")
+    p_dr.add_argument("--rationale", default="", help="Why this choice?")
+    p_dr.add_argument("--outcome", default="", help="What exactly did we decide?")
+    p_dr.add_argument("--area", default="", dest="impact_area",
+                      help="Impact area: schema|architecture|tools|process|...")
+    p_dr.add_argument("--importance", type=int, default=5, help="Importance 0–10.")
+    p_dr.add_argument("--tags", default="", help="Comma-separated tags.")
+
+    sub.add_parser("decision-list", help="List decisions recorded for the active tranche.")
+
     return parser
 
 
@@ -527,6 +583,243 @@ def _cmd_tool_invoke(state, args) -> int:
     return 0 if result.status in ("accepted", "completed") else 1
 
 
+def _cmd_tranche_declare(state, args) -> int:
+    request = {
+        "title": args.title,
+        "scope": args.scope,
+        "non_goals": args.non_goals,
+        "completion_criteria": args.completion_criteria,
+        "next_tranche_candidate": args.next_tranche or None,
+    }
+    payload_ref = state.blob_store.put_json(request)
+    envelope = SidecarEnvelope.new(
+        object_type="tranche",
+        actor_id=args.actor,
+        operation_intent="declare_tranche",
+        payload_ref=payload_ref,
+    )
+    result = state.router.dispatch(envelope)
+    response = {}
+    if result.payload_ref:
+        try:
+            response = state.blob_store.get_json(result.payload_ref)
+        except Exception:
+            pass
+    _print_json({
+        "status": result.status,
+        "tranche_id": response.get("tranche_id"),
+        "title": response.get("title"),
+        "started_at": response.get("started_at"),
+    })
+    return 0 if result.status in ("accepted", "completed") else 1
+
+
+def _cmd_tranche_status(state, args) -> int:
+    tranche = state.tranche_manager.get_active()
+    checklist = state.tranche_manager.build_checklist(state)
+    _print_json({
+        "active_tranche": {
+            "tranche_id": tranche.tranche_id,
+            "title": tranche.title,
+            "status": tranche.status,
+            "started_at": tranche.started_at,
+            "decisions_count": tranche.decisions_count,
+            "files_changed_count": len(tranche.files_changed),
+            "tests_run_count": len(tranche.tests_run),
+            "scope_preview": tranche.declared_scope[:120],
+        } if tranche else None,
+        "checklist": [
+            {
+                "item_id": c.item_id,
+                "status": c.status,
+                "required": c.required,
+                "label": c.label,
+                "detail": c.detail,
+            }
+            for c in checklist
+        ],
+        "ready_to_close": all(
+            c.status == "pass"
+            for c in checklist
+            if c.required and c.item_id not in ("park_notes_written", "journal_entry_closed")
+        ),
+    })
+    return 0
+
+
+def _cmd_tranche_update(state, args) -> int:
+    from src.lib.common import now_iso
+    request: dict = {}
+
+    if args.file:
+        files_changed = []
+        for f in args.file:
+            if ":" in f:
+                path, change_type = f.split(":", 1)
+            else:
+                path, change_type = f, "modified"
+            files_changed.append({"path": path.strip(), "change_type": change_type.strip()})
+        request["files_changed"] = files_changed
+
+    if args.deviation:
+        deviations = []
+        for d in args.deviation:
+            parts = d.split("|", 1)
+            desc = parts[0].strip()
+            reason = parts[1].strip() if len(parts) > 1 else ""
+            deviations.append({"description": desc, "reason": reason})
+        request["deviations"] = deviations
+
+    if args.question:
+        now = now_iso()
+        request["open_questions"] = [
+            {"question": q.strip(), "raised_at": now} for q in args.question
+        ]
+
+    if not request:
+        sys.stderr.write("error: provide at least --file, --deviation, or --question\n")
+        return 2
+
+    payload_ref = state.blob_store.put_json(request)
+    envelope = SidecarEnvelope.new(
+        object_type="tranche",
+        actor_id=args.actor,
+        operation_intent="update_tranche",
+        payload_ref=payload_ref,
+    )
+    result = state.router.dispatch(envelope)
+    return _print_result(result, args)
+
+
+def _cmd_tranche_close(state, args) -> int:
+    request = {
+        "dry_run": args.dry_run,
+        "skip_smoke_check": args.skip_smoke_check,
+        "extra_notes": args.extra_notes,
+        "use_ollama": getattr(args, "with_ollama", False),
+        "ollama_model": getattr(args, "ollama_model", "qwen3.5:9b"),
+        "ollama_num_predict": getattr(args, "ollama_num_predict", 8192),
+    }
+    payload_ref = state.blob_store.put_json(request)
+    envelope = SidecarEnvelope.new(
+        object_type="tranche",
+        actor_id=args.actor,
+        operation_intent="close_tranche",
+        payload_ref=payload_ref,
+    )
+    result = state.router.dispatch(envelope)
+    response = {}
+    if result.payload_ref:
+        try:
+            response = state.blob_store.get_json(result.payload_ref)
+        except Exception:
+            pass
+    if args.quiet:
+        sys.stdout.write(f"{result.status}\n")
+    else:
+        _print_json({
+            "status": result.status,
+            "title": response.get("title"),
+            "park_notes_path": response.get("park_notes_path"),
+            "park_notes_blob_ref": response.get("park_notes_blob_ref"),
+            "journal_entry_uid": response.get("journal_entry_uid"),
+            "decisions_count": response.get("decisions_count"),
+            "files_changed_count": response.get("files_changed_count"),
+            "checklist_pass_count": response.get("checklist_pass_count"),
+            "checklist_total": response.get("checklist_total"),
+            "dry_run": response.get("dry_run", False),
+        })
+    return 0 if result.status in ("accepted", "completed") else 1
+
+
+def _cmd_tranche_smoke_pass(state, args) -> int:
+    request = {
+        "test_name": args.test_name,
+        "passed": True,
+        "details": args.details,
+    }
+    payload_ref = state.blob_store.put_json(request)
+    envelope = SidecarEnvelope.new(
+        object_type="smoke_test",
+        actor_id=args.actor,
+        operation_intent="smoke_pass",
+        payload_ref=payload_ref,
+    )
+    result = state.router.dispatch(envelope)
+    response = {}
+    if result.payload_ref:
+        try:
+            response = state.blob_store.get_json(result.payload_ref)
+        except Exception:
+            pass
+    _print_json({
+        "status": result.status,
+        "tranche_id": response.get("tranche_id"),
+        "test_name": response.get("test_name"),
+        "passed": response.get("passed"),
+        "ran_at": response.get("ran_at"),
+    })
+    return 0 if result.status in ("accepted", "completed") else 1
+
+
+def _cmd_decision_record(state, args) -> int:
+    tags = [t.strip() for t in (args.tags or "").split(",") if t.strip()]
+    request = {
+        "title": args.title,
+        "context": args.context,
+        "rationale": args.rationale,
+        "outcome": args.outcome,
+        "impact_area": args.impact_area,
+        "importance": args.importance,
+        "tags": tags,
+    }
+    payload_ref = state.blob_store.put_json(request)
+    envelope = SidecarEnvelope.new(
+        object_type="decision",
+        actor_id=args.actor,
+        operation_intent="record_decision",
+        payload_ref=payload_ref,
+    )
+    result = state.router.dispatch(envelope)
+    response = {}
+    if result.payload_ref:
+        try:
+            response = state.blob_store.get_json(result.payload_ref)
+        except Exception:
+            pass
+    _print_json({
+        "status": result.status,
+        "decision_id": response.get("decision_id"),
+        "tranche_id": response.get("tranche_id"),
+        "title": response.get("title"),
+        "created_at": response.get("created_at"),
+    })
+    return 0 if result.status in ("accepted", "completed") else 1
+
+
+def _cmd_decision_list(state, args) -> int:
+    tranche = state.tranche_manager.get_active()
+    tranche_id = tranche.tranche_id if tranche else None
+    decisions = state.tranche_manager.get_decisions(tranche_id)
+    _print_json({
+        "active_tranche_id": tranche_id,
+        "count": len(decisions),
+        "decisions": [
+            {
+                "decision_id": d.decision_id,
+                "title": d.title,
+                "impact_area": d.impact_area,
+                "importance": d.importance,
+                "created_at": d.created_at,
+                "context_preview": d.context[:120] if d.context else "",
+                "outcome_preview": d.outcome[:120] if d.outcome else "",
+            }
+            for d in decisions
+        ],
+    })
+    return 0
+
+
 _COMMANDS = {
     "ack-contract": _cmd_ack_contract,
     "status": _cmd_status,
@@ -545,6 +838,14 @@ _COMMANDS = {
     "evidence-list": _cmd_evidence_list,
     "tool-list": _cmd_tool_list,
     "tool-invoke": _cmd_tool_invoke,
+    # T2.5 Active Tranche Ledger
+    "tranche-declare": _cmd_tranche_declare,
+    "tranche-status": _cmd_tranche_status,
+    "tranche-update": _cmd_tranche_update,
+    "tranche-close": _cmd_tranche_close,
+    "tranche-smoke-pass": _cmd_tranche_smoke_pass,
+    "decision-record": _cmd_decision_record,
+    "decision-list": _cmd_decision_list,
 }
 
 
