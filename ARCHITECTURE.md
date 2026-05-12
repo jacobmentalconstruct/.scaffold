@@ -429,6 +429,12 @@ See [`src/managers/constraint_manager.py`](src/managers/constraint_manager.py) f
 - **Tranche checklist as live projection** — RESOLVED: `proj_tranche_checklist` added to `PROJECTION_NAMES` (8 projections total). Builder reads `TrancheManager.build_checklist(state)` which evaluates 9 items including `contract_acked`, `tranche_declared`, `scope_declared`, `smoke_test_passed`, and Park Phase completion items.
 - **Decision capture during work** — RESOLVED: `decision-record` CLI command creates typed `DecisionRecord` with context/rationale/outcome/impact_area/alternatives. Records are queryable via `decision-list` and are automatically included in compiled park notes.
 
+### Resolved at T2.6 / T2.6.1 (2026-05-11)
+
+- **Ollama-generated park notes** — RESOLVED (T2.6): `OllamaClient` (`src/components/ollama_client.py`) wraps Ollama's `/api/generate` with stdlib only (Contract Pledge 1). `close_tranche --with-ollama` attempts LLM prose generation; falls back to template compiler on any failure. Park Phase never blocks on an external service.
+- **qwen3.5 extended-thinking mode / empty response** — RESOLVED (T2.6.1): qwen3.5 routes reasoning to a separate `thinking` field by default, leaving `response` empty. Fixed by adding `"think": false` top-level in the Ollama payload. Exposed as `think=True` kwarg for callers that explicitly want chain-of-thought.
+- **GPU OOM / token cap** — RESOLVED (T2.6.1): `num_predict: 8192` in Ollama `options` caps output tokens. Park notes are ~2–3k tokens; 8192 is a generous ceiling with no VRAM risk. Exposed as `--ollama-num-predict` CLI flag.
+
 ### Still open (deferred to later tranches)
 
 - **Process model:** single-process vs multi-process. T1 only has CLI (single-process). Will be exercised in T2 (MCP server) + T3 (Tk UI). Decision: probably multi-process meeting at the SQLite spine, per "single store" pledge.
@@ -440,3 +446,4 @@ See [`src/managers/constraint_manager.py`](src/managers/constraint_manager.py) f
 - **HARD_BLOCK gate enforcement:** currently advisory in `ContractAuthority._check_hard_block` (returns None). Specific path-containment / shape checks live in the managers/orchestrators that touch the relevant resources, lands T2 with `install_orchestrator` and the project_index_manager.
 - **Contract-revision-aware seed:** new T1 question — when contract markdown changes, should `seed_from_contract` produce a new contract record (new version row), or upsert in-place? Currently it upserts. Real revision flow needs versioning + a `supersedes` relation.
 - **Authorities table empty-by-default:** new T1 question — `_actor_authority` falls back to default-by-prefix when no row exists. Need an explicit `register_actor` envelope in T2 to make actor identity first-class.
+- **Per-hunk change records with LLM summaries (DEFERRED — T4+):** `git diff` hunk metadata (file, old/new line ranges, raw diff text) is deterministic and cheap to capture at tranche-close. The *reason* for each hunk is already in the `decision_records` table. Storing hunk↔decision linkage + a 1-sentence Ollama summary per hunk in the `evidence` table would give exact per-line provenance and dramatically compress the context a resuming agent needs. This is the natural implementation of the Bag of Evidence layer (§3.3) for code-change evidence. `git_reader` already exists; `OllamaClient` is already wired. The surface to display hunk summaries belongs in T3's project_map_panel or a future diff_panel. Implement in T4+ alongside the proposal/approval cycle where diffs become first-class.
