@@ -60,6 +60,7 @@ class ProjectionManager:
         self._builders["agent_bootstrap"] = self._build_agent_bootstrap
         self._builders["tranche_checklist"] = self._build_tranche_checklist
         self._builders["viewport_state"] = self._build_viewport_state
+        self._builders["handoff"] = self._build_handoff
         # Stub builders for other projections (just stamp the timestamp).
         for name in PROJECTION_NAMES:
             if name not in self._builders:
@@ -122,7 +123,7 @@ class ProjectionManager:
         self._store.execute("DELETE FROM proj_current_sidecar_state;")
         self._store.execute(
             """
-            INSERT INTO proj_current_sidecar_state(
+            INSERT OR REPLACE INTO proj_current_sidecar_state(
                 id, project_root, sidecar_root, sidecar_id,
                 current_contract_hash, current_contract_acked,
                 registered_object_count, registered_tool_count,
@@ -157,7 +158,10 @@ class ProjectionManager:
             FROM events
             WHERE operation_intent IN
                 ('acknowledge_contract', 'register_constraint',
-                 'register_profile', 'seed_constraints')
+                 'register_profile', 'seed_constraints',
+                 'request_authority_elevation',
+                 'approve_authority_request',
+                 'reject_authority_request')
             ORDER BY created_at DESC LIMIT 20;
             """
         )
@@ -189,7 +193,7 @@ class ProjectionManager:
         self._store.execute("DELETE FROM proj_contract_status;")
         self._store.execute(
             """
-            INSERT INTO proj_contract_status(
+            INSERT OR REPLACE INTO proj_contract_status(
                 id, contract_id, version, text_hash,
                 acks_json, outstanding_grants_json, recent_contract_events_json,
                 last_refreshed_at
@@ -368,17 +372,36 @@ class ProjectionManager:
             except Exception:
                 tranche_scope = {"raw": scope_meta}
 
+        pending_approvals = []
+        try:
+            approval_rows = self._store.query(
+                """
+                SELECT request_id, actor_id, requested_level, operation_intent,
+                       summary, justification, requested_at, scope_pattern_json
+                FROM approval_requests
+                WHERE status = 'pending'
+                ORDER BY requested_at ASC;
+                """
+            )
+            pending_approvals = []
+            for row in approval_rows:
+                item = dict(row)
+                item["scope_pattern"] = json.loads(item.pop("scope_pattern_json") or "{}")
+                pending_approvals.append(item)
+        except Exception:
+            pending_approvals = []
+
         self._store.execute("DELETE FROM proj_human_dashboard;")
         self._store.execute(
             """
-            INSERT INTO proj_human_dashboard(
+            INSERT OR REPLACE INTO proj_human_dashboard(
                 id, pending_approvals_json, recent_journal_json,
                 unresolved_issues_json, current_tranche_scope_json,
                 last_scan_summary_json, last_refreshed_at
             ) VALUES (1, ?, ?, ?, ?, ?, ?);
             """,
             (
-                safe_json_dumps([]),  # pending approvals — T4
+                safe_json_dumps(pending_approvals),
                 safe_json_dumps(recent_journal),
                 safe_json_dumps(unresolved_issues),
                 safe_json_dumps(tranche_scope),
@@ -520,6 +543,30 @@ class ProjectionManager:
 
         projection_index = list(PROJECTION_NAMES)
 
+        session_id = _preferred_memory_session_id(self._state, self._store)
+
+        memory_summary = (
+            self._state.memory_manager.session_summary(session_id)
+            if session_id and getattr(self._state, "memory_manager", None)
+            else {
+                "session_id": "",
+                "stm_count": 0,
+                "bag_count": 0,
+                "shelf_count": 0,
+                "recent_stm": [],
+                "recent_bag": [],
+                "evidence_shelf": [],
+                "recent_change_hunks": [],
+            }
+        )
+        self._state.memory_state = {
+            "session_id": memory_summary.get("session_id", ""),
+            "stm_count": memory_summary.get("stm_count", 0),
+            "bag_count": memory_summary.get("bag_count", 0),
+            "shelf_count": memory_summary.get("shelf_count", 0),
+            "change_hunk_count": len(memory_summary.get("recent_change_hunks", [])),
+        }
+
         # ---------- FUTURE (parse IMPLEMENTATION_ROADMAP.md) -----------------
         sidecar_root = _Path(self._state.sidecar_root)
         roadmap_path = sidecar_root / "IMPLEMENTATION_ROADMAP.md"
@@ -544,15 +591,16 @@ class ProjectionManager:
         self._store.execute("DELETE FROM proj_agent_bootstrap;")
         self._store.execute(
             """
-            INSERT INTO proj_agent_bootstrap(
+            INSERT OR REPLACE INTO proj_agent_bootstrap(
                 id,
                 recent_events_json, recent_journal_json, recent_decisions_json,
                 current_task_json, authority_json, contract_status_json,
                 tool_index_json, projection_index_json,
+                stm_json, bag_json, evidence_shelf_json,
                 current_tranche_scope_json, next_planned_steps_json,
                 active_goals_json, open_questions_json,
                 source_plan_path, source_plan_hash, last_refreshed_at
-            ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """,
             (
                 safe_json_dumps(recent_events),
@@ -563,6 +611,9 @@ class ProjectionManager:
                 safe_json_dumps(contract_status),
                 safe_json_dumps(tool_index),
                 safe_json_dumps(projection_index),
+                safe_json_dumps(memory_summary.get("recent_stm", [])),
+                safe_json_dumps(memory_summary.get("recent_bag", [])),
+                safe_json_dumps(memory_summary.get("evidence_shelf", [])),
                 safe_json_dumps(current_tranche_scope),
                 safe_json_dumps(next_planned_steps),
                 safe_json_dumps(active_goals),
@@ -644,13 +695,18 @@ class ProjectionManager:
         agent_count_row = self._store.query_one(
             "SELECT COUNT(DISTINCT actor_id) AS n FROM events WHERE actor_id LIKE 'agent:%';"
         )
-        agent_count = int(agent_count_row["n"]) if agent_count_row else 0
+        event_agent_count = int(agent_count_row["n"]) if agent_count_row else 0
         contract_count_row = self._store.query_one("SELECT COUNT(*) AS n FROM constraint_units;")
         contract_unit_count = int(contract_count_row["n"]) if contract_count_row else 0
         tranche_count_row = self._store.query_one(
             "SELECT COUNT(*) AS n FROM journal_entries WHERE kind = 'tranche';"
         )
         tranche_count = int(tranche_count_row["n"]) if tranche_count_row else 0
+        approval_count_row = self._store.query_one(
+            "SELECT COUNT(*) AS n FROM approval_requests WHERE status = 'pending';"
+        )
+        approval_count = int(approval_count_row["n"]) if approval_count_row else 0
+        session_rows = self._state.agent_session_manager.active(limit=8) if getattr(self._state, "agent_session_manager", None) else []
 
         recent_events_rows = self._store.query(
             """
@@ -699,18 +755,55 @@ class ProjectionManager:
             for record in self._state.evidence_manager.recent(limit=8)
         ] if self._state.evidence_manager else []
 
+        memory_summary = {
+            "session_id": "",
+            "stm_count": 0,
+            "bag_count": 0,
+            "shelf_count": 0,
+            "recent_stm": [],
+            "recent_bag": [],
+            "evidence_shelf": [],
+            "recent_change_hunks": [],
+        }
+        current_session_id = _preferred_memory_session_id(self._state, self._store)
+        if not current_session_id and session_rows:
+            current_session_id = session_rows[0].session_id
+        if current_session_id and getattr(self._state, "memory_manager", None):
+            memory_summary = self._state.memory_manager.session_summary(current_session_id)
+        self._state.memory_state = {
+            "session_id": memory_summary.get("session_id", ""),
+            "stm_count": memory_summary.get("stm_count", 0),
+            "bag_count": memory_summary.get("bag_count", 0),
+            "shelf_count": memory_summary.get("shelf_count", 0),
+            "change_hunk_count": len(memory_summary.get("recent_change_hunks", [])),
+        }
+
+        agent_count = max(event_agent_count, len({row.actor_id for row in session_rows}))
         current_agent = {}
-        for event in recent_events:
-            actor_id = event.get("actor_id", "")
-            if actor_id.startswith("agent:"):
-                current_agent = {
-                    "actor_id": actor_id,
-                    "last_operation_intent": event.get("operation_intent"),
-                    "last_stream": event.get("stream"),
-                    "last_seen_at": event.get("created_at"),
-                    "authority": "Propose",
-                }
-                break
+        if session_rows:
+            session = session_rows[0]
+            current_agent = {
+                "actor_id": session.actor_id,
+                "channel": session.channel,
+                "client_name": session.client_name,
+                "last_operation_intent": (session.metadata or {}).get("last_operation_intent", ""),
+                "last_stream": session.channel,
+                "last_seen_at": session.last_seen_at,
+                "authority": session.authority_level,
+                "runtime_status": (self._state.agent_status or {}).get("status", ""),
+            }
+        else:
+            for event in recent_events:
+                actor_id = event.get("actor_id", "")
+                if actor_id.startswith("agent:"):
+                    current_agent = {
+                        "actor_id": actor_id,
+                        "last_operation_intent": event.get("operation_intent"),
+                        "last_stream": event.get("stream"),
+                        "last_seen_at": event.get("created_at"),
+                        "authority": "Propose",
+                    }
+                    break
 
         current_tranche_scope = {}
         next_planned_steps: list[str] = []
@@ -753,6 +846,7 @@ class ProjectionManager:
                 {"id": "agents", "label": f"{agent_count} AGENT{'S' if agent_count != 1 else ''}", "state": "live" if agent_count else "ok"},
                 {"id": "mcp", "label": "MCP STDIO", "state": "ok"},
                 {"id": "git", "label": "GIT REPO" if current_git and current_git.is_repo else "NO GIT", "state": "ok" if current_git and current_git.is_repo else "warn"},
+                {"id": "approvals", "label": f"{approval_count} APPROVAL{'S' if approval_count != 1 else ''}", "state": "warn" if approval_count else "ok"},
                 {"id": "drift", "label": "NO DRIFT" if drift_state == "ok" else "DRIFT", "state": drift_state},
             ],
             "drift_banner": {
@@ -771,6 +865,8 @@ class ProjectionManager:
                 {"id": "evidence", "label": "Evidence", "count": evidence_count},
                 {"id": "projmap", "label": "Project Map", "count": int(paths.get("indexed_path_count", 0))},
                 {"id": "contracts", "label": "Contracts", "count": contract_unit_count},
+                {"id": "localagent", "label": "Local Agent", "count": 1},
+                {"id": "handoff", "label": "Handoff", "count": 1},
                 {"id": "events", "label": "Envelopes", "count": event_count},
                 {"id": "tools", "label": "Tool Invocations", "count": tool_invocation_count},
                 {"id": "tranches", "label": "Tranches", "count": tranche_count},
@@ -782,6 +878,7 @@ class ProjectionManager:
             "recent_events": recent_events,
             "recent_tools": recent_tools,
             "recent_evidence": recent_evidence,
+            "recent_change_hunks": memory_summary.get("recent_change_hunks", []),
         }
 
         present = {
@@ -819,7 +916,20 @@ class ProjectionManager:
                 "tests_run_count": len(active_tranche.tests_run),
             } if active_tranche else {},
             "current_agent": current_agent,
+            "agent_sessions": [
+                {
+                    "session_id": session.session_id,
+                    "actor_id": session.actor_id,
+                    "channel": session.channel,
+                    "client_name": session.client_name,
+                    "last_seen_at": session.last_seen_at,
+                    "authority_level": session.authority_level,
+                }
+                for session in session_rows
+            ],
+            "pending_approvals": approval_count,
             "tool_count": tool_count,
+            "memory": memory_summary,
         }
 
         future = {
@@ -850,7 +960,7 @@ class ProjectionManager:
         self._store.execute("DELETE FROM proj_viewport_state;")
         self._store.execute(
             """
-            INSERT INTO proj_viewport_state(
+            INSERT OR REPLACE INTO proj_viewport_state(
                 id, topbar_json, focus_json, past_json, present_json,
                 future_json, log_json, status_bar_json, last_refreshed_at
             ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?);
@@ -863,6 +973,84 @@ class ProjectionManager:
                 safe_json_dumps(future),
                 safe_json_dumps(log_payload),
                 safe_json_dumps(status_bar),
+                ts,
+            ),
+        )
+
+    def _build_handoff(self) -> None:
+        ts = now_iso()
+        active_tranche = self._state.tranche_manager.get_active() if getattr(self._state, "tranche_manager", None) else None
+        latest_closed = None
+        if self._state.journal_manager:
+            closed = self._state.journal_manager.query(kind="tranche", status="closed", limit=1)
+            if closed:
+                entry = closed[0]
+                latest_closed = {
+                    "entry_uid": entry.entry_uid,
+                    "title": entry.title,
+                    "created_at": entry.created_at,
+                    "body_excerpt": entry.body[:220] + ("..." if len(entry.body) > 220 else ""),
+                }
+
+        sidecar_root = self._state.sidecar_root
+        roadmap_text = ""
+        roadmap_path = sidecar_root / "IMPLEMENTATION_ROADMAP.md"
+        if roadmap_path.is_file():
+            roadmap_text = roadmap_path.read_text(encoding="utf-8")
+        active_horizon, next_steps, active_goals = _parse_roadmap(roadmap_text) if roadmap_text else ({}, [], [])
+        arch_path = sidecar_root / "ARCHITECTURE.md"
+        open_questions = _parse_open_questions(arch_path.read_text(encoding="utf-8")) if arch_path.is_file() else []
+
+        reading_order = [
+            "ONBOARDING.md",
+            "WE_ARE_HERE_NOW.md",
+            "README.md",
+            "IMPLEMENTATION_ROADMAP.md",
+            "contracts/builder_constraint_contract.md",
+            "ARCHITECTURE.md",
+            "NORTHSTARS.md",
+            "DEV_LOG.md",
+            "SOURCE_PROVENANCE.md",
+            "TOOLS.md",
+        ]
+        verification_commands = [
+            "python -m src.app cli version",
+            "python smoke_test.py",
+            "python -m src.app cli projection handoff",
+            "python -m src.app cli projection agent_bootstrap",
+            "python -m src.app cli journal-query --kind todo --status open",
+            "python -m src.app ui",
+        ]
+
+        self._store.execute("DELETE FROM proj_handoff;")
+        self._store.execute(
+            """
+            INSERT OR REPLACE INTO proj_handoff(
+                id, latest_closed_tranche_json, active_tranche_json,
+                active_horizon_json, open_questions_json, reading_order_json,
+                verification_commands_json, last_refreshed_at
+            ) VALUES (1, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                safe_json_dumps(latest_closed or {}),
+                safe_json_dumps(
+                    {
+                        "tranche_id": active_tranche.tranche_id,
+                        "title": active_tranche.title,
+                        "started_at": active_tranche.started_at,
+                        "scope": active_tranche.declared_scope,
+                    } if active_tranche else {}
+                ),
+                safe_json_dumps(
+                    {
+                        "current": active_horizon,
+                        "next_steps": next_steps,
+                        "active_goals": active_goals,
+                    }
+                ),
+                safe_json_dumps(open_questions),
+                safe_json_dumps(reading_order),
+                safe_json_dumps(verification_commands),
                 ts,
             ),
         )
@@ -965,6 +1153,8 @@ def _parse_roadmap(text: str) -> tuple[dict, list, list]:
 
     scope = _extract("Scope")
     files = _extract_prefix("Files implemented")
+    if not files:
+        files = _extract_prefix("Target files / surfaces")
     non_goals = _extract("Non-goals")
     completion = _extract("Completion criteria")
 
@@ -1015,6 +1205,42 @@ def _parse_open_questions(arch_text: str) -> list[str]:
     return questions[:30]
 
 
+def _preferred_memory_session_id(state: "SidecarState", store: "Store") -> str:
+    agent_status = getattr(state, "agent_status", {}) or {}
+    if agent_status.get("session_id") and str(agent_status.get("status") or "") in {
+        "running",
+        "awaiting_approval",
+        "stop_requested",
+    }:
+        return str(agent_status.get("session_id") or "")
+    row = store.query_one(
+        """
+        SELECT session_id FROM change_hunks
+        WHERE session_id IS NOT NULL AND session_id != ''
+        ORDER BY created_at DESC
+        LIMIT 1;
+        """
+    )
+    if row and row["session_id"]:
+        return str(row["session_id"])
+    row = store.query_one(
+        """
+        SELECT session_id FROM session_memory_items
+        WHERE session_id IS NOT NULL AND session_id != ''
+        ORDER BY last_accessed_at DESC
+        LIMIT 1;
+        """
+    )
+    if row and row["session_id"]:
+        return str(row["session_id"])
+    sessions = getattr(state, "agent_session_manager", None)
+    if sessions is not None:
+        active = sessions.active(limit=1)
+        if active:
+            return active[0].session_id
+    return ""
+
+
 def _build_drift_checks(state: "SidecarState", tool_count: int) -> list[dict]:
     sidecar_root = state.sidecar_root
     checks: list[dict] = []
@@ -1023,6 +1249,7 @@ def _build_drift_checks(state: "SidecarState", tool_count: int) -> list[dict]:
     readme_ok = False
     arch_ok = False
     tranche_ok = False
+    handoff_docs_ok = False
 
     try:
         import re
@@ -1057,11 +1284,17 @@ def _build_drift_checks(state: "SidecarState", tool_count: int) -> list[dict]:
         import re
 
         tranches = state.journal_manager.query(kind="tranche", limit=50) if state.journal_manager else []
+        completed_tranches = sorted(
+            {
+                re.match(r"T(\d+)", entry.title).group(1)
+                for entry in tranches
+                if re.match(r"T(\d+)", entry.title)
+            }
+        )
         missing_sections = []
-        for entry in tranches:
-            match = re.match(r"T(\d+(?:\.\d+)?)", entry.title)
-            if match and f"Resolved at T{match.group(1)}" not in arch:
-                missing_sections.append(match.group(1))
+        for tranche_num in completed_tranches:
+            if f"Resolved at T{tranche_num}" not in arch:
+                missing_sections.append(tranche_num)
         arch_ok = not missing_sections
     except Exception:
         arch_ok = False
@@ -1082,6 +1315,28 @@ def _build_drift_checks(state: "SidecarState", tool_count: int) -> list[dict]:
         "id": "latest_tranche",
         "ok": tranche_ok,
         "label": "Latest tranche journal entry is closed",
+    })
+
+    try:
+        latest_tranche_title = ""
+        tranches = state.journal_manager.query(kind="tranche", limit=1) if state.journal_manager else []
+        if tranches:
+            latest_tranche_title = tranches[0].title
+        where_now = (sidecar_root / "WE_ARE_HERE_NOW.md").read_text(encoding="utf-8")
+        dev_log = (sidecar_root / "DEV_LOG.md").read_text(encoding="utf-8")
+        northstars = (sidecar_root / "NORTHSTARS.md").read_text(encoding="utf-8")
+        handoff_docs_ok = (
+            "Active horizon" in northstars
+            and latest_tranche_title in where_now
+            and "T4" in dev_log
+        )
+    except Exception:
+        handoff_docs_ok = False
+
+    checks.append({
+        "id": "handoff_docs",
+        "ok": handoff_docs_ok,
+        "label": "Cold-team handoff docs align with latest parked tranche",
     })
     return checks
 

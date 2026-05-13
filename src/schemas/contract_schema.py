@@ -136,6 +136,8 @@ INTENT_REQUIRED_AUTHORITY: dict[str, str] = {
     "complete_task": "Propose",
     "supersede_task": "Propose",
     "request_authority_elevation": "Propose",
+    "approve_authority_request": "Apply",
+    "reject_authority_request": "Apply",
 
     # constraint registry
     "register_constraint": "Apply",

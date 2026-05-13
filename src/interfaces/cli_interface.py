@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 from src.core.envelope import SidecarEnvelope
 from src.lib.common import public_root_labels, safe_json_dumps
 from src.lib.logging_setup import get_logger
+from src.lib.ui_launcher import launch_monitor
 
 
 if TYPE_CHECKING:
@@ -128,6 +129,62 @@ def _build_parser() -> argparse.ArgumentParser:
     p_call.add_argument("--tool", required=True, help="Tool name.")
     p_call.add_argument("--input-json", help="Arguments as inline JSON.")
     p_call.add_argument("--input-file", help="Arguments as path to JSON file.")
+
+    p_ar = sub.add_parser("approval-request", help="Submit an authority elevation request.")
+    p_ar.add_argument("--actor", required=True, help="Actor id.")
+    p_ar.add_argument("--requested-level", required=True, help="Sandbox Execute|Apply|Export")
+    p_ar.add_argument("--operation-intent", default="tool_invoked", help="Intent the grant should cover.")
+    p_ar.add_argument("--summary", required=True, help="Short human-facing summary.")
+    p_ar.add_argument("--justification", required=True, help="Why this needs elevation.")
+    p_ar.add_argument("--scope-json", default="{}", help="Scope pattern JSON, e.g. {\"tool_name\":\"text_file_writer\",\"path\":\"t4/foo.txt\"}")
+    p_ar.add_argument("--source-channel", default="cli", help="Source channel label.")
+
+    p_al = sub.add_parser("approval-list", help="List approval requests.")
+    p_al.add_argument("--all", action="store_true", help="Show approved/rejected requests too.")
+
+    p_aa = sub.add_parser("approval-approve", help="Approve a pending authority request.")
+    p_aa.add_argument("--actor", required=True, help="Human actor id.")
+    p_aa.add_argument("--request-id", required=True, help="Approval request id.")
+    p_aa.add_argument("--expires-minutes", type=int, default=60, help="Grant lifetime in minutes.")
+    p_aa.add_argument("--single-use", action="store_true", help="Issue a single-use grant (recommended).")
+    p_aa.add_argument("--decision-reason", default="", help="Optional approval note.")
+
+    p_arj = sub.add_parser("approval-reject", help="Reject a pending authority request.")
+    p_arj.add_argument("--actor", required=True, help="Human actor id.")
+    p_arj.add_argument("--request-id", required=True, help="Approval request id.")
+    p_arj.add_argument("--decision-reason", default="", help="Optional rejection reason.")
+
+    sub.add_parser("session-list", help="List recent agent sessions.")
+
+    # ---- local sidecar agent runtime ----------------------------------
+    p_las = sub.add_parser("local-agent-status", help="Show current local-agent runtime status.")
+    p_las.add_argument("--base-url", default="http://localhost:11434", help="Ollama base URL.")
+
+    p_lam = sub.add_parser("local-agent-models", help="List locally available Ollama models.")
+    p_lam.add_argument("--base-url", default="http://localhost:11434", help="Ollama base URL.")
+
+    p_lap = sub.add_parser("local-agent-preflight", help="Check local-agent prerequisites.")
+    p_lap.add_argument("--actor", default="agent:local:ollama", help="Agent actor id.")
+    p_lap.add_argument("--model", default="qwen3.5:9b", help="Ollama model name.")
+    p_lap.add_argument("--base-url", default="http://localhost:11434", help="Ollama base URL.")
+
+    p_lar = sub.add_parser("local-agent-run", help="Run the local sidecar agent floor.")
+    p_lar.add_argument("--actor", default="agent:local:ollama", help="Agent actor id.")
+    p_lar.add_argument("--model", default="qwen3.5:9b", help="Ollama model name.")
+    p_lar.add_argument("--base-url", default="http://localhost:11434", help="Ollama base URL.")
+    p_lar.add_argument("--prompt", help="Task prompt for the local agent.")
+    p_lar.add_argument("--prompt-file", help="Path to a text/markdown file whose contents become the prompt.")
+    p_lar.add_argument("--max-rounds", type=int, default=4, help="Maximum local agent rounds (1..8).")
+    p_lar.add_argument("--mock-response", action="append", default=[],
+                       help="Deterministic mock model response JSON/string (repeatable).")
+    p_lar.add_argument("--mock-failure", default="",
+                       help="Deterministic failure label for smoke tests (e.g. ollama_unreachable).")
+    p_lar.add_argument("--no-ui", action="store_true",
+                       help="Do not auto-launch the Tk monitor for this local-agent run.")
+
+    p_lastop = sub.add_parser("local-agent-stop", help="Request a cooperative stop for the local sidecar agent.")
+    p_lastop.add_argument("--actor", default="", help="Agent actor id to stop.")
+    p_lastop.add_argument("--session-id", default="", help="Specific session id to stop.")
 
     # ---- tranche ledger (T2.5) ----------------------------------------
     p_td = sub.add_parser("tranche-declare", help="Declare a new active tranche.")
@@ -586,6 +643,213 @@ def _cmd_tool_invoke(state, args) -> int:
     return 0 if result.status in ("accepted", "completed") else 1
 
 
+def _cmd_approval_request(state, args) -> int:
+    request = {
+        "requested_level": args.requested_level,
+        "operation_intent": args.operation_intent,
+        "summary": args.summary,
+        "justification": args.justification,
+        "scope_pattern": json.loads(args.scope_json or "{}"),
+        "source_channel": args.source_channel,
+    }
+    payload_ref = state.blob_store.put_json(request)
+    envelope = SidecarEnvelope.new(
+        object_type="authority_request",
+        actor_id=args.actor,
+        operation_intent="request_authority_elevation",
+        payload_ref=payload_ref,
+    )
+    result = state.router.dispatch(envelope)
+    response = {}
+    if result.payload_ref:
+        try:
+            response = state.blob_store.get_json(result.payload_ref)
+        except Exception:
+            pass
+    _print_json({
+        "status": result.status,
+        "event_id": result.event_id,
+        "request_id": response.get("request_id"),
+        "requested_level": response.get("requested_level"),
+    })
+    return 0 if result.status in ("accepted", "completed") else 1
+
+
+def _cmd_approval_list(state, args) -> int:
+    requests = (
+        state.human_approval_manager.recent(limit=100)
+        if args.all
+        else state.human_approval_manager.pending(limit=100)
+    )
+    _print_json({
+        "count": len(requests),
+        "requests": [
+            {
+                "request_id": record.request_id,
+                "actor_id": record.actor_id,
+                "requested_level": record.requested_level,
+                "operation_intent": record.operation_intent,
+                "summary": record.summary,
+                "status": record.status,
+                "requested_at": record.requested_at,
+                "decided_at": record.decided_at,
+                "decided_by": record.decided_by,
+                "grant_id": record.grant_id,
+                "scope_pattern": record.scope_pattern,
+            }
+            for record in requests
+        ],
+    })
+    return 0
+
+
+def _cmd_approval_approve(state, args) -> int:
+    request = {
+        "request_id": args.request_id,
+        "expires_minutes": args.expires_minutes,
+        "single_use": True if args.single_use else True,
+        "decision_reason": args.decision_reason,
+    }
+    payload_ref = state.blob_store.put_json(request)
+    envelope = SidecarEnvelope.new(
+        object_type="authority_grant",
+        actor_id=args.actor,
+        operation_intent="approve_authority_request",
+        payload_ref=payload_ref,
+    )
+    result = state.router.dispatch(envelope)
+    response = {}
+    if result.payload_ref:
+        try:
+            response = state.blob_store.get_json(result.payload_ref)
+        except Exception:
+            pass
+    _print_json({
+        "status": result.status,
+        "event_id": result.event_id,
+        "request_id": response.get("request_id"),
+        "grant_id": response.get("grant_id"),
+        "expires_at": response.get("expires_at"),
+    })
+    return 0 if result.status in ("accepted", "completed") else 1
+
+
+def _cmd_approval_reject(state, args) -> int:
+    request = {
+        "request_id": args.request_id,
+        "decision_reason": args.decision_reason,
+    }
+    payload_ref = state.blob_store.put_json(request)
+    envelope = SidecarEnvelope.new(
+        object_type="authority_grant",
+        actor_id=args.actor,
+        operation_intent="reject_authority_request",
+        payload_ref=payload_ref,
+    )
+    result = state.router.dispatch(envelope)
+    response = {}
+    if result.payload_ref:
+        try:
+            response = state.blob_store.get_json(result.payload_ref)
+        except Exception:
+            pass
+    _print_json({
+        "status": result.status,
+        "event_id": result.event_id,
+        "request_id": response.get("request_id"),
+        "decision_reason": response.get("decision_reason"),
+    })
+    return 0 if result.status in ("accepted", "completed") else 1
+
+
+def _cmd_session_list(state, args) -> int:
+    sessions = state.agent_session_manager.list_recent(limit=50)
+    _print_json({
+        "count": len(sessions),
+        "sessions": [
+            {
+                "session_id": session.session_id,
+                "actor_id": session.actor_id,
+                "channel": session.channel,
+                "client_name": session.client_name,
+                "authority_level": session.authority_level,
+                "started_at": session.started_at,
+                "last_seen_at": session.last_seen_at,
+            }
+            for session in sessions
+        ],
+    })
+    return 0
+
+
+def _cmd_local_agent_status(state, args) -> int:
+    status = state.local_agent_runtime.status()
+    status["preflight"] = state.local_agent_runtime.preflight(
+        base_url=args.base_url,
+        model=(state.agent_status or {}).get("model", "qwen3.5:9b"),
+        actor_id=(state.agent_status or {}).get("actor_id", "agent:local:ollama"),
+    )
+    _print_json(status)
+    return 0
+
+
+def _cmd_local_agent_models(state, args) -> int:
+    _print_json(state.local_agent_runtime.list_models(base_url=args.base_url))
+    return 0
+
+
+def _cmd_local_agent_preflight(state, args) -> int:
+    _print_json(
+        state.local_agent_runtime.preflight(
+            actor_id=args.actor,
+            model=args.model,
+            base_url=args.base_url,
+        )
+    )
+    return 0
+
+
+def _cmd_local_agent_run(state, args) -> int:
+    from pathlib import Path
+
+    prompt = ""
+    if args.prompt_file:
+        prompt = Path(args.prompt_file).read_text(encoding="utf-8")
+    elif args.prompt:
+        prompt = args.prompt
+    else:
+        sys.stderr.write("error: provide --prompt or --prompt-file\n")
+        return 2
+
+    if not args.no_ui:
+        launch_monitor(state.sidecar_root)
+
+    result = state.local_agent_runtime.run(
+        prompt=prompt,
+        actor_id=args.actor,
+        model=args.model,
+        base_url=args.base_url,
+        max_rounds=args.max_rounds,
+        mock_responses=args.mock_response or [],
+        mock_failure=args.mock_failure or "",
+    )
+    _print_json(result)
+    return 0 if result.get("status") in {"completed", "awaiting_approval", "ok"} else 1
+
+
+def _cmd_local_agent_stop(state, args) -> int:
+    if not (args.actor or args.session_id):
+        sys.stderr.write("error: provide --actor or --session-id\n")
+        return 2
+    _print_json(
+        state.local_agent_runtime.request_stop(
+            actor_id=args.actor or "",
+            session_id=args.session_id or "",
+        )
+    )
+    return 0
+
+
 def _cmd_tranche_declare(state, args) -> int:
     request = {
         "title": args.title,
@@ -841,6 +1105,16 @@ _COMMANDS = {
     "evidence-list": _cmd_evidence_list,
     "tool-list": _cmd_tool_list,
     "tool-invoke": _cmd_tool_invoke,
+    "approval-request": _cmd_approval_request,
+    "approval-list": _cmd_approval_list,
+    "approval-approve": _cmd_approval_approve,
+    "approval-reject": _cmd_approval_reject,
+    "session-list": _cmd_session_list,
+    "local-agent-status": _cmd_local_agent_status,
+    "local-agent-models": _cmd_local_agent_models,
+    "local-agent-preflight": _cmd_local_agent_preflight,
+    "local-agent-run": _cmd_local_agent_run,
+    "local-agent-stop": _cmd_local_agent_stop,
     # T2.5 Active Tranche Ledger
     "tranche-declare": _cmd_tranche_declare,
     "tranche-status": _cmd_tranche_status,

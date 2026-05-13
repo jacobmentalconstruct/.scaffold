@@ -26,6 +26,7 @@ PROJECTION_NAMES = (
     "journal_timeline",
     "tranche_checklist",
     "viewport_state",
+    "handoff",
 )
 
 
@@ -59,6 +60,9 @@ PROJECTION_COLUMNS: dict[str, tuple[str, ...]] = {
         "contract_status_json TEXT",
         "tool_index_json TEXT",
         "projection_index_json TEXT",
+        "stm_json TEXT",
+        "bag_json TEXT",
+        "evidence_shelf_json TEXT",
         # FUTURE
         "current_tranche_scope_json TEXT",
         "next_planned_steps_json TEXT",
@@ -143,6 +147,16 @@ PROJECTION_COLUMNS: dict[str, tuple[str, ...]] = {
         "status_bar_json TEXT",
         "last_refreshed_at TEXT",
     ),
+    "handoff": (
+        "id INTEGER PRIMARY KEY CHECK (id = 1)",
+        "latest_closed_tranche_json TEXT",
+        "active_tranche_json TEXT",
+        "active_horizon_json TEXT",
+        "open_questions_json TEXT",
+        "reading_order_json TEXT",
+        "verification_commands_json TEXT",
+        "last_refreshed_at TEXT",
+    ),
 }
 
 
@@ -161,6 +175,9 @@ INTENT_AFFECTS_PROJECTIONS: dict[str, tuple[str, ...]] = {
 
     "tool_invoked": ("current_sidecar_state", "viewport_state"),
     "tool_result": ("current_sidecar_state", "viewport_state"),
+    "request_authority_elevation": ("human_dashboard", "contract_status", "viewport_state", "handoff"),
+    "approve_authority_request": ("human_dashboard", "contract_status", "viewport_state", "handoff"),
+    "reject_authority_request": ("human_dashboard", "contract_status", "viewport_state", "handoff"),
 
     "create_journal_entry": ("journal_timeline", "human_dashboard", "agent_bootstrap", "viewport_state"),
     "update_journal_entry": ("journal_timeline", "viewport_state"),
@@ -185,8 +202,10 @@ INTENT_AFFECTS_PROJECTIONS: dict[str, tuple[str, ...]] = {
     "record_decision": ("tranche_checklist", "agent_bootstrap", "viewport_state"),
     "smoke_pass":      ("tranche_checklist", "viewport_state"),
     "close_tranche":   (
-        "tranche_checklist", "human_dashboard", "agent_bootstrap", "journal_timeline", "viewport_state",
+        "tranche_checklist", "human_dashboard", "agent_bootstrap", "journal_timeline", "viewport_state", "handoff",
     ),
+    "declare_tranche": ("tranche_checklist", "human_dashboard", "agent_bootstrap", "viewport_state", "handoff"),
+    "record_decision": ("tranche_checklist", "agent_bootstrap", "viewport_state", "handoff"),
 }
 
 

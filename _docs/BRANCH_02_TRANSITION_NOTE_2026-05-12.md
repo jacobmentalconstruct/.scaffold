@@ -24,14 +24,14 @@ without mutating or rewriting earlier project history.
 
 ### 2. Terminology repair
 
-- Corrected live-project instances of the typo `constrant` to `constraint`
+- Corrected live-project instances of the misspelling to `constraint`
   in writable project files.
 - Verified the live SQLite state no longer contained the typo.
 
 ### 3. Smoke-test guard added
 
 - Added a non-fatal typo guard to `smoke_test.py`.
-- The guard warns on any future lingering `constrant` usage and explains the
+- The guard warns on any future lingering misspelling and explains the
   intended spelling correction so a repair pass can address it deliberately.
 
 ### 4. Path privacy / portability hardening

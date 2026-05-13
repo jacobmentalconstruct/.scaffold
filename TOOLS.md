@@ -1,6 +1,6 @@
 # TOOLS.md — Tool Index
 
-> **Status:** T2 complete. 5 tools registered. Source of truth for each tool's metadata is the `FILE_METADATA` block in its source file; this index is a navigational mirror, regenerated as part of every tranche's Park Phase (see `ARCHITECTURE.md §12.2`).
+> **Status:** T5 complete. 7 tools registered. Source of truth for each tool's metadata is the `FILE_METADATA` block in its source file; this index is a navigational mirror, regenerated as part of every tranche's Park Phase (see `ARCHITECTURE.md §12.2`).
 
 ---
 
@@ -29,14 +29,16 @@ Each tool entry includes: `tool_name`, `category`, one-line summary, `mcp_name`,
 
 ## Registered tools
 
-5 tools registered (all `Observe` authority — first-prototype read-only slate).
+7 tools registered. The sidecar now includes both read-only introspection tools and the first approval-gated mutation tools, and T5's local sidecar runtime uses that same narrow tool belt instead of a private back-channel.
 
 | tool_name | category | summary | mcp_name | required_authority | file |
 |---|---|---|---|---|---|
 | `file_tree_snapshot` | introspection | Snapshot the host project's file tree from project_index. | `file_tree_snapshot` | Observe | [src/tools/file_tree_snapshot.py](src/tools/file_tree_snapshot.py) |
+| `directory_scaffold` | scaffold | Dry-run-first declarative scaffolding under workspaces or approved project paths. | `directory_scaffold` | Apply | [src/tools/directory_scaffold.py](src/tools/directory_scaffold.py) |
 | `host_capability_probe` | introspection | Probe Python version, platform, and common-tool availability. | `host_capability_probe` | Observe | [src/tools/host_capability_probe.py](src/tools/host_capability_probe.py) |
 | `read_projection` | query | Read a named projection; returns its rows + last_refreshed_at. | `read_projection` | Observe | [src/tools/read_projection.py](src/tools/read_projection.py) |
 | `text_file_reader` | introspection | Bounded text read of a host-project file. | `text_file_reader` | Observe | [src/tools/text_file_reader.py](src/tools/text_file_reader.py) |
+| `text_file_writer` | write | Confirmed text writes to sidecar workspaces or approved host-project paths. | `text_file_writer` | Apply | [src/tools/text_file_writer.py](src/tools/text_file_writer.py) |
 | `workspace_boundary_audit` | introspection | Audit project root, sidecar root, and runtime folder containment. | `workspace_boundary_audit` | Observe | [src/tools/workspace_boundary_audit.py](src/tools/workspace_boundary_audit.py) |
 
 **Live verification:** `python -m src.app cli tool-list`

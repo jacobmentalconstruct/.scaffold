@@ -1,52 +1,117 @@
 """
 FILE: src/components/diff_builder.py
-ROLE: Constructs unified diffs from before/after content for proposals.
-WHAT IT DOES (planned): see prose plan below.
-
-================================================================================
-TRANCHE 0 PROSE PLAN — DO NOT EXECUTE
-================================================================================
-
-PURPOSE
--------
-Mechanical worker that builds unified diff text from a (before, after)
-pair. Used by patch proposals so the agent can show a human exactly
-what would change before requesting Apply authority.
-
-WHAT IT EXPOSES
----------------
-- `class DiffBuilder`
-- `DiffBuilder.from_strings(path, before, after) -> DiffResult`
-       Returns a DiffResult with:
-           path, unified_diff_text, hunk_count, added_lines,
-           removed_lines, context_hash
-- `DiffBuilder.from_files(project_root, path, after_text) -> DiffResult`
-       Reads `path` as the "before"; `after_text` is the proposal.
-- `DiffBuilder.preview(diff_result, max_lines=80) -> str` — truncated
-  preview for envelope evidence_refs (the full diff lives in blob_store).
-
-OUTPUT DISCIPLINE
------------------
-- Unified format with 3 lines of context by default, configurable.
-- Line endings preserved; no auto-normalization.
-- Diff bytes are written into `blob_store`; the envelope carries only
-  the hash + a summary (hunk_count, added/removed counts).
-
-SPINE FIT
----------
-- Called by tools that produce patch proposals.
-- Output flows into evidence_manager via the standard envelope chain.
-
-NON-GOALS
----------
-- Does not apply diffs. That's `patch_applier`.
-- Does not interpret semantics — pure text diffing.
-- Does not handle binary files. Returns `kind="binary"` in the result;
-  caller decides what to do.
-
-OPEN QUESTIONS
---------------
-- Whitespace handling: ignore-whitespace as an option? Default off.
-- Chunk size limits: massive diffs should still produce a result, but
-  the preview gets truncated. Decide threshold at code time.
+ROLE: Constructs unified diffs and hunk metadata for provenance capture.
+WHAT IT DOES: Builds deterministic unified diff text from before/after text,
+              computes per-hunk line ranges, and exposes a short preview for
+              evidence surfaces.
 """
+
+from __future__ import annotations
+
+import difflib
+import hashlib
+import re
+from dataclasses import dataclass
+from pathlib import Path
+
+
+_HUNK_HEADER = re.compile(
+    r"^@@ -(?P<old_start>\d+)(?:,(?P<old_count>\d+))? \+(?P<new_start>\d+)(?:,(?P<new_count>\d+))? @@"
+)
+
+
+@dataclass(frozen=True)
+class DiffResult:
+    path: str
+    unified_diff_text: str
+    hunks: list[dict]
+    hunk_count: int
+    added_lines: int
+    removed_lines: int
+    context_hash: str
+    kind: str = "text"
+
+
+class DiffBuilder:
+    @staticmethod
+    def from_strings(*, path: str, before: str, after: str, context_lines: int = 3) -> DiffResult:
+        before_lines = before.splitlines(keepends=True)
+        after_lines = after.splitlines(keepends=True)
+        diff_lines = list(
+            difflib.unified_diff(
+                before_lines,
+                after_lines,
+                fromfile=path,
+                tofile=path,
+                n=context_lines,
+                lineterm="",
+            )
+        )
+        unified = "\n".join(diff_lines)
+        hunks = _parse_hunks(diff_lines)
+        return DiffResult(
+            path=path,
+            unified_diff_text=unified,
+            hunks=hunks,
+            hunk_count=len(hunks),
+            added_lines=sum(item["added_lines"] for item in hunks),
+            removed_lines=sum(item["removed_lines"] for item in hunks),
+            context_hash=hashlib.sha256(f"{path}\n{before}\n{after}".encode("utf-8")).hexdigest(),
+        )
+
+    @staticmethod
+    def from_files(*, project_root: Path, path: str, after_text: str, context_lines: int = 3) -> DiffResult:
+        target = (Path(project_root).resolve() / path).resolve()
+        before_text = target.read_text(encoding="utf-8") if target.is_file() else ""
+        return DiffBuilder.from_strings(path=path, before=before_text, after=after_text, context_lines=context_lines)
+
+    @staticmethod
+    def preview(diff_result: DiffResult, max_lines: int = 80) -> str:
+        lines = diff_result.unified_diff_text.splitlines()
+        if len(lines) <= max_lines:
+            return diff_result.unified_diff_text
+        return "\n".join(lines[:max_lines] + ["", f"... truncated {len(lines) - max_lines} more line(s)"])
+
+
+def _parse_hunks(diff_lines: list[str]) -> list[dict]:
+    hunks: list[dict] = []
+    current: dict | None = None
+    current_lines: list[str] = []
+
+    def _flush() -> None:
+        nonlocal current, current_lines
+        if current is None:
+            return
+        diff_text = "\n".join(current_lines)
+        added = 0
+        removed = 0
+        for line in current_lines[1:]:
+            if line.startswith("+") and not line.startswith("+++"):
+                added += 1
+            elif line.startswith("-") and not line.startswith("---"):
+                removed += 1
+        current["diff_text"] = diff_text
+        current["added_lines"] = added
+        current["removed_lines"] = removed
+        hunks.append(current)
+        current = None
+        current_lines = []
+
+    for line in diff_lines:
+        if line.startswith("@@ "):
+            _flush()
+            match = _HUNK_HEADER.match(line)
+            if not match:
+                continue
+            current = {
+                "old_start": int(match.group("old_start")),
+                "old_count": int(match.group("old_count") or "1"),
+                "new_start": int(match.group("new_start")),
+                "new_count": int(match.group("new_count") or "1"),
+            }
+            current_lines = [line]
+            continue
+        if current is not None:
+            current_lines.append(line)
+    _flush()
+    return hunks

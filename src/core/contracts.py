@@ -10,6 +10,7 @@ WHAT IT DOES: check(envelope) returns ACCEPT or one of REJECT_* with a reason
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from typing import TYPE_CHECKING
 
 from src.lib.common import (
@@ -131,7 +132,10 @@ class ContractAuthority:
         # 4. Authority check.
         actor_authority = self._actor_authority(envelope.actor_id)
         # Apply any per-envelope grants.
-        granted_level = self._lookup_grant(envelope)
+        granted_level = self._lookup_grant(
+            envelope,
+            consume=envelope.operation_intent != "tool_invoked",
+        )
         effective_authority = _max_level(actor_authority, granted_level) if granted_level else actor_authority
 
         required = required_authority(intent)
@@ -219,6 +223,20 @@ class ContractAuthority:
     def required_authority_for(self, operation_intent: str) -> str:
         return required_authority(operation_intent)
 
+    def effective_authority_for_tool(
+        self,
+        actor_id: str,
+        tool_name: str,
+        arguments: dict,
+    ) -> tuple[str, dict | None]:
+        base = self._actor_authority(actor_id)
+        grant = self._matching_tool_grant(actor_id, tool_name, arguments)
+        level = _max_level(base, grant["elevated_level"]) if grant else base
+        return level, grant
+
+    def consume_grant(self, grant_id: str) -> None:
+        self._store.execute("UPDATE grants SET consumed = 1 WHERE grant_id = ?;", (grant_id,))
+
     # --- internals -----------------------------------------------------
 
     def _actor_authority(self, actor_id: str) -> str:
@@ -241,26 +259,12 @@ class ContractAuthority:
             return "tool"
         return "system"
 
-    def _lookup_grant(self, envelope: "SidecarEnvelope") -> str | None:
-        # Look up an unconsumed grant matching actor + intent.
-        row = self._store.query_one(
-            """
-            SELECT * FROM grants
-            WHERE actor_id = ? AND operation_intent = ? AND consumed = 0
-            ORDER BY granted_at ASC LIMIT 1;
-            """,
-            (envelope.actor_id, envelope.operation_intent),
-        )
-        if not row:
+    def _lookup_grant(self, envelope: "SidecarEnvelope", *, consume: bool = True) -> str | None:
+        row = self._matching_grant_row(envelope.actor_id, envelope.operation_intent, envelope)
+        if row is None:
             return None
-        if row["expires_at"] and row["expires_at"] < now_iso():
-            return None
-        # Consume single-use grants.
-        if int(row["single_use"]) == 1:
-            self._store.execute(
-                "UPDATE grants SET consumed = 1 WHERE grant_id = ?;",
-                (row["grant_id"],),
-            )
+        if consume and int(row["single_use"]) == 1:
+            self.consume_grant(row["grant_id"])
         return row["elevated_level"]
 
     def _all_acks_for(self, contract_id: str, version: str) -> list[str]:
@@ -270,6 +274,55 @@ class ContractAuthority:
             (contract_id, version),
         )
         return [r["actor_id"] for r in rows]
+
+    def _matching_tool_grant(self, actor_id: str, tool_name: str, arguments: dict) -> dict | None:
+        rows = self._store.query(
+            """
+            SELECT * FROM grants
+            WHERE actor_id = ? AND operation_intent = 'tool_invoked' AND consumed = 0
+            ORDER BY granted_at ASC;
+            """,
+            (actor_id,),
+        )
+        for row in rows:
+            if row["expires_at"] and row["expires_at"] < now_iso():
+                continue
+            scope = _parse_scope_pattern(row["scope_pattern"])
+            if scope and not _tool_scope_matches(scope, tool_name, arguments):
+                continue
+            return dict(row)
+        return None
+
+    def _matching_grant_row(self, actor_id: str, operation_intent: str, envelope: "SidecarEnvelope"):
+        rows = self._store.query(
+            """
+            SELECT * FROM grants
+            WHERE actor_id = ? AND operation_intent = ? AND consumed = 0
+            ORDER BY granted_at ASC;
+            """,
+            (actor_id, operation_intent),
+        )
+        for row in rows:
+            if row["expires_at"] and row["expires_at"] < now_iso():
+                continue
+            scope = _parse_scope_pattern(row["scope_pattern"])
+            if scope and not self._scope_matches_envelope(scope, envelope):
+                continue
+            return row
+        return None
+
+    def _scope_matches_envelope(self, scope: dict, envelope: "SidecarEnvelope") -> bool:
+        if envelope.operation_intent != "tool_invoked":
+            return True
+        if not envelope.payload_ref or self._state.blob_store is None:
+            return False
+        try:
+            payload = self._state.blob_store.get_json(envelope.payload_ref)
+        except Exception:
+            return False
+        tool_name = str(payload.get("tool_name", ""))
+        arguments = payload.get("arguments") or {}
+        return _tool_scope_matches(scope, tool_name, arguments)
 
     def _check_hard_block(self, unit, envelope: "SidecarEnvelope") -> str | None:
         """T1: hard-block constraints are advisory in this implementation.
@@ -299,3 +352,39 @@ def _max_level(a: str, b: str) -> str:
     rank_a = AUTHORITY_LEVELS.index(a) if a in AUTHORITY_LEVELS else -1
     rank_b = AUTHORITY_LEVELS.index(b) if b in AUTHORITY_LEVELS else -1
     return AUTHORITY_LEVELS[max(rank_a, rank_b)] if max(rank_a, rank_b) >= 0 else a
+
+
+def _parse_scope_pattern(raw: str | None) -> dict:
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _tool_scope_matches(scope: dict, tool_name: str, arguments: dict) -> bool:
+    requested_tool = str(scope.get("tool_name", "")).strip()
+    if requested_tool and requested_tool != tool_name:
+        return False
+
+    requested_domain = str(scope.get("target_domain", "")).strip()
+    if requested_domain:
+        actual_domain = str(arguments.get("target_domain", "workspace")).strip()
+        if requested_domain != actual_domain:
+            return False
+
+    requested_path = str(scope.get("path", "")).strip()
+    if requested_path:
+        actual_path = str(arguments.get("path", "")).replace("\\", "/")
+        if requested_path.replace("\\", "/") != actual_path:
+            return False
+
+    requested_prefix = str(scope.get("path_prefix", "")).strip()
+    if requested_prefix:
+        actual_path = str(arguments.get("path", "")).replace("\\", "/")
+        if not actual_path.startswith(requested_prefix.replace("\\", "/")):
+            return False
+
+    return True

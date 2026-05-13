@@ -67,6 +67,9 @@ class StatePanel(ttk.Frame):
             f"event_log_position: {current_state.get('event_log_position', 0)}",
             f"registered_tools: {current_state.get('registered_tool_count', 0)}",
             f"registered_objects: {current_state.get('registered_object_count', 0)}",
+            f"stm_count: {(current_state.get('memory_state') or {}).get('stm_count', 0)}",
+            f"bag_count: {(current_state.get('memory_state') or {}).get('bag_count', 0)}",
+            f"shelf_count: {(current_state.get('memory_state') or {}).get('shelf_count', 0)}",
             "",
             "Contract",
             f"contract_id: {present.get('contract', {}).get('contract_id', '')}",
@@ -87,6 +90,7 @@ class StatePanel(ttk.Frame):
         detail = {
             "latest_scan": present.get("latest_scan", {}),
             "latest_git": present.get("latest_git", {}),
+            "memory": present.get("memory", {}),
             "human_dashboard": data.get("human_dashboard", {}),
             "tranche_checklist": data.get("tranche_checklist", []),
         }

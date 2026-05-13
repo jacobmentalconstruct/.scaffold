@@ -53,6 +53,12 @@ _SCAN_INTENTS = frozenset({"scan", "rescan_path"})
 # T2.5: Tranche Ledger intents that need PENDING → real event_id finalization.
 _TRANCHE_DECLARE_INTENTS = frozenset({"declare_tranche"})
 _DECISION_INTENTS = frozenset({"record_decision"})
+_APPROVAL_INTENTS = frozenset({
+    "request_authority_elevation",
+    "approve_authority_request",
+    "reject_authority_request",
+})
+_TOOL_INTENTS = frozenset({"tool_invoked"})
 
 
 class Router:
@@ -178,6 +184,18 @@ class Router:
                 self._tranche_manager.finalize_decision_event_id(sealed)
             except Exception as e:
                 log.error("decision finalize failed for event %s: %s", sealed.event_id, e)
+        elif envelope.operation_intent in _APPROVAL_INTENTS \
+                and getattr(self._state, "human_approval_manager", None) is not None:
+            try:
+                self._state.human_approval_manager.finalize_request_event_id(sealed)
+            except Exception as e:
+                log.error("approval finalize failed for event %s: %s", sealed.event_id, e)
+        elif envelope.operation_intent in _TOOL_INTENTS \
+                and getattr(self, "_tool_registry", None) is not None:
+            try:
+                self._tool_registry.finalize_invocation_event_id(sealed)
+            except Exception as e:
+                log.error("tool invocation finalize failed for event %s: %s", sealed.event_id, e)
 
         # 4. Apply graph relations from envelope's relation_refs.
         try:

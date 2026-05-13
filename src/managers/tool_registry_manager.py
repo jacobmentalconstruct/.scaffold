@@ -190,7 +190,11 @@ class ToolRegistryManager:
             raise KeyError(f"unknown tool: {tool_name}")
 
         # Authority check.
-        actor_auth = state.contract_authority._actor_authority(envelope.actor_id)
+        actor_auth, matched_grant = state.contract_authority.effective_authority_for_tool(
+            envelope.actor_id,
+            tool_name,
+            arguments,
+        )
         if not authority_at_least(actor_auth, tool.required_authority):
             raise PermissionError(
                 f"actor {envelope.actor_id!r} has authority {actor_auth!r} "
@@ -212,6 +216,12 @@ class ToolRegistryManager:
              args_ref, started_at),
         )
 
+        state.active_tool_context = {
+            "actor_id": envelope.actor_id,
+            "object_id": envelope.object_id,
+            "operation_intent": envelope.operation_intent,
+            "tool_name": tool_name,
+        }
         try:
             result = tool.run_fn(arguments, state)
         except Exception as e:
@@ -224,7 +234,11 @@ class ToolRegistryManager:
             )
             log.error("tool %s failed: %s", tool_name, error)
             error_blob = self._blob.put_json({"error": error, "tool_name": tool_name})
+            state.active_tool_context = {}
             return envelope.with_status("failed").with_payload_ref(error_blob)
+        finally:
+            if state.active_tool_context.get("tool_name") == tool_name:
+                state.active_tool_context = {}
 
         finished_at = now_iso()
         result_ref = self._blob.put_json(result)
@@ -233,6 +247,8 @@ class ToolRegistryManager:
             "WHERE invocation_id = ?;",
             (finished_at, result_ref, invocation_id),
         )
+        if matched_grant and int(matched_grant.get("single_use", 0)) == 1:
+            state.contract_authority.consume_grant(matched_grant["grant_id"])
         self._store.execute(
             "UPDATE tool_registry SET last_invoked_at = ? WHERE tool_name = ?;",
             (finished_at, tool_name),

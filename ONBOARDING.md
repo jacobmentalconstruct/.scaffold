@@ -5,7 +5,7 @@
 
 ## The 30-second pitch
 
-`.scaffold/` is a **vended sidecar package** that drops into any project root. It carries: a binding contract, a SQLite spine (events + graph + projections), an MCP server for agents, a Tkinter UI for humans, 5 tools so far, and a journal that records every meaningful decision.
+`.scaffold/` is a **vended sidecar package** that drops into any project root. It carries: a binding contract, a SQLite spine (events + graph + projections), an MCP server for agents, a Tkinter UI for humans, a local Ollama-backed sidecar agent floor, 7 registered tools, and a journal that records every meaningful decision.
 
 The host project **never knows the sidecar exists** — no imports across the boundary; the sidecar only writes inside its own subtree unless explicit `Apply`/`Export` authority is granted.
 
@@ -25,18 +25,21 @@ Read in this order. Each builds on the previous.
 
 1. **`ONBOARDING.md`** (this file) — orientation.
 2. **`README.md`** — current status banner, folder map, the invariant.
-3. **`IMPLEMENTATION_ROADMAP.md`** — tranche-by-tranche plan. Look at which tranches are marked `✓ COMPLETE` and which is next. The "Tranche status" headers carry metrics + the journal entry uid + evidence hashes from each closeout.
-4. **`contracts/builder_constraint_contract.md`** — the binding contract. **You must acknowledge this before doing meaningful work.** Pay special attention to §D (Park Phase Discipline).
-5. **`ARCHITECTURE.md`** — design truth. Critical sections:
+3. **`WE_ARE_HERE_NOW.md`** — the fastest pickup note. If you need the “where are we now?” answer first, read this before the deeper docs.
+4. **`IMPLEMENTATION_ROADMAP.md`** — tranche-by-tranche plan. Look at which tranches are marked `✓ COMPLETE` and which is next. The "Tranche status" headers carry metrics + the journal entry uid + evidence hashes from each closeout.
+5. **`contracts/builder_constraint_contract.md`** — the binding contract. **You must acknowledge this before doing meaningful work.** Pay special attention to §D (Park Phase Discipline).
+6. **`ARCHITECTURE.md`** — design truth. Critical sections:
    - §1 (spine rule)
    - §3 (memory model: LTM / STM / Bag of Evidence)
    - §3.6 (three temporal directions)
    - §12.2 (Park Phase — explicit 7 steps)
    - §13 (cross-cutting principles)
    - §15 (resolved-by-tranche status + still-open questions)
-6. **`SOURCE_PROVENANCE.md`** — what was written fresh vs structurally borrowed from `.parts/.dev-tools-REF/`. Includes per-tranche entries with evidence hashes.
-7. **`TOOLS.md`** — registered tools index. Source of truth for tool count is the `tool_registry` table; this file is its mirror, regenerated each Park Phase.
-8. **`_docs/`** — supporting docs:
+7. **`NORTHSTARS.md`** — what the substrate can already do vs what still separates it from superseding the older experiment.
+8. **`DEV_LOG.md`** — append-only milestone narrative.
+9. **`SOURCE_PROVENANCE.md`** — what was written fresh vs structurally borrowed from `.parts/.dev-tools-REF/`. Includes per-tranche entries with evidence hashes.
+10. **`TOOLS.md`** — registered tools index. Source of truth for tool count is the `tool_registry` table; this file is its mirror, regenerated each Park Phase.
+11. **`_docs/`** — supporting docs:
    - `INCORPORATION_INVENTORY.md` — what was reviewed from the precursor at Tranche A.
    - `T1_CLOSEOUT_NOTES.md` — T1 Park artifact (now SUPERSEDED by its journal entry, retained as code-time mirror).
    - `T2_PARK_NOTES.md` — T2 Park artifact.
@@ -66,8 +69,21 @@ python -m src.app cli journal-query --kind tranche
 # Show every decision journal entry
 python -m src.app cli journal-query --kind decision
 
+# Show the deferred carry-forward backlog (journal is the source of truth)
+python -m src.app cli journal-query --kind todo --status open
+
 # What tools are registered?
 python -m src.app cli tool-list
+
+# What is the cold-team handoff packet?
+python -m src.app cli projection handoff
+
+# What approvals or sessions are live?
+python -m src.app cli approval-list --all
+python -m src.app cli session-list
+python -m src.app cli local-agent-status
+python -m src.app cli local-agent-models
+python -m src.app cli local-agent-preflight --actor "agent:local:ollama" --model "qwen3.5:9b"
 
 # What's the latest scan and git state?
 python -m src.app cli scan-status
@@ -103,29 +119,41 @@ python -m src.app cli ack-contract --actor "agent:your-id"
 python -m src.app mcp
 ```
 
-Starts the MCP stdio server. Supports `initialize`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `ping`. Tool calls become `tool_invoked` envelopes routed through the spine — same gate, same event log.
+Starts the MCP stdio server. Supports `initialize`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `sidecar/submit`, `ping`. Tool calls become `tool_invoked` envelopes routed through the spine; `sidecar/submit` sends non-tool envelopes (including `acknowledge_contract` and `request_authority_elevation`) through the same gate and event log.
+
+By default, starting MCP also launches the Tk monitor as a companion window so a human can watch the sidecar live while an agent is attached. Use:
+
+```bash
+python -m src.app mcp --no-ui
+```
+
+when you explicitly want a headless agent session.
 
 **First read for an MCP-connected agent:**
-1. `tools/list` to see what's available.
+1. `sidecar/submit` an `acknowledge_contract` envelope for your MCP actor.
 2. `resources/read` with `uri="projection://agent_bootstrap"` for the PAST/PRESENT/FUTURE snapshot.
-3. `tools/call` for `read_projection`, `file_tree_snapshot`, etc.
+3. `tools/list` to see what's available.
+4. `sidecar/submit` a `request_authority_elevation` envelope when you need approval for a bounded mutation.
+5. `tools/call` for `read_projection`, `file_tree_snapshot`, `text_file_writer`, etc.
 
 ## Memory model in one breath
 
 - **LTM** = everything on disk the agent can read: journal, projections, project code, sidecar code, contract, event log.
-- **STM** = the agent's sliding context window (managed externally for now — the sidecar doesn't run an agent yet).
-- **Bag of Evidence** = the bridge layer (schema reserved, not implemented — DP1 deferred).
+- **STM** = the active working window. MCP-connected agents still manage this externally; the local sidecar agent now has sidecar-managed STM persisted in `session_memory_items`.
+- **Bag of Evidence** = the bridge layer. Older local-agent working context overflows from STM into Bag rows so it can be recalled later without pretending it is LTM.
+- **Evidence Shelf** = the compact working set derived from STM + Bag + recent hunk provenance. It is surfaced in `agent_bootstrap` and the Tk monitor for quick continuity.
 
 When designing anything that persists, ask: STM, Bag, or LTM?
 
 ## How to resume the previous session's work
 
-1. Read `IMPLEMENTATION_ROADMAP.md` — find the next tranche **not** marked `✓ COMPLETE`.
+1. Read `IMPLEMENTATION_ROADMAP.md` — find the next tranche **not** marked `✓ COMPLETE` (now T7).
 2. Read the latest `_docs/T_n_PARK_NOTES.md` — it captures the previous tranche's closeout in detail.
 3. Run `python -m src.app cli projection agent_bootstrap` — gives you PAST + PRESENT + FUTURE in one read.
 4. Run `python smoke_test.py` — verifies the state is clean. If it's not, **fix Park Phase drift first**.
-5. Read the relevant prose-plan files for the next tranche's target files.
-6. Begin work. Acknowledge the contract if you haven't.
+5. Run `python -m src.app cli journal-query --kind todo --status open` — review the normalized deferred backlog before starting new work.
+6. Read the relevant runtime and doc surfaces for the next tranche's target files.
+7. Begin work. Acknowledge the contract if you haven't.
 
 ## How to close a tranche (the codified ritual)
 
@@ -179,6 +207,43 @@ At close, the orchestrator:
 6. Re-run `python smoke_test.py` — must PASS.
 
 If `smoke_test.py` fails after Park Phase, **the tranche is not parked.** Fix and repeat.
+
+## Approval loop quick path
+
+```bash
+# Agent or simulated actor requests elevation for one bounded workspace write
+python -m src.app cli approval-request --actor "agent:mcp:demo" \
+    --requested-level Apply \
+    --summary "Write workspace proof" \
+    --justification "Need a bounded text write inside workspaces/ for T4 workflow proof" \
+    --scope-json "{\"tool_name\":\"text_file_writer\",\"target_domain\":\"workspace\",\"path\":\"demo/proof.txt\"}"
+
+# Human approves from CLI (the Tk Contracts tab can do the same)
+python -m src.app cli approval-approve --actor "human:you" --request-id "<approval_id>"
+
+# Approved actor performs the bounded write
+python -m src.app cli tool-invoke --actor "agent:mcp:demo" --tool text_file_writer \
+    --input-json "{\"path\":\"demo/proof.txt\",\"content\":\"approved\\n\",\"confirm\":true,\"create_dirs\":true,\"target_domain\":\"workspace\"}"
+```
+
+## Local-agent quick path
+
+```bash
+# Check that the local runtime is healthy and the target model is available
+python -m src.app cli local-agent-status
+python -m src.app cli local-agent-preflight --actor "agent:local:ollama" --model "qwen3.5:9b"
+
+# Run the bounded local-agent floor
+python -m src.app cli local-agent-run --actor "agent:local:ollama" --model "qwen3.5:9b" \
+    --prompt "Read the bootstrap, inspect the project, and propose the next safe step."
+
+# Keep the run headless when needed
+python -m src.app cli local-agent-run --no-ui --actor "agent:local:ollama" --model "qwen3.5:9b" \
+    --prompt "Headless local-agent run."
+
+# If you need to stop a long run cooperatively
+python -m src.app cli local-agent-stop --actor "agent:local:ollama"
+```
 
 ## Boundary rules — what NOT to do
 

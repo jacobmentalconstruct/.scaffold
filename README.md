@@ -1,7 +1,7 @@
 # `.scaffold/` — Vended Sidecar Package
 
-> **Status:** T3 complete (2026-05-12). Spine boot ✓, journal ✓, install + scan ✓, read-only MCP ✓, 5 tools registered, Tk monitoring UI ✓, smoke test PASS.
-> See [IMPLEMENTATION_ROADMAP.md](IMPLEMENTATION_ROADMAP.md) for tranche progress. T4 (proposal + approval cycle) is next.
+> **Status:** T6/T6.1 complete and parked (2026-05-13). Spine boot ✓, journal ✓, install + scan ✓, proposal-capable MCP ✓, 7 tools registered, Tk operator UI ✓, approval loop ✓, local sidecar agent floor ✓, companion monitor default/stability polish ✓, schema v8 memory layer ✓, continuity alignment ✓.
+> See [IMPLEMENTATION_ROADMAP.md](IMPLEMENTATION_ROADMAP.md) for tranche progress. T6 parked explicit STM, Bag of Evidence archival, Evidence Shelf visibility, and per-hunk line provenance; T6.1 sealed the post-park continuity alignment; T7 is next.
 >
 > **New here?** Read **[ONBOARDING.md](ONBOARDING.md)** first — explicit reading order + verification commands.
 
@@ -24,6 +24,15 @@
 
 Every state mutation flows: **Interface → Envelope → Router → ContractCheck → Orchestrator → Manager → Event → derived views.** No sideways calls. No back-channels. The envelope is the only currency.
 
+## Operator default
+
+Agent-facing sidecar runs now open the Tk monitor by default so a human can watch the substrate live while an agent is connected or running. This applies to:
+
+- `python -m src.app mcp`
+- `python -m src.app cli local-agent-run ...`
+
+Use `--no-ui` when you intentionally want a headless run.
+
 ## Folder map
 
 | Path | Purpose |
@@ -38,23 +47,34 @@ Every state mutation flows: **Interface → Envelope → Router → ContractChec
 | `snapshots/` | Point-in-time Merkle snapshots of the spine. |
 | `src/` | The runtime: core spine, orchestrators, managers, components, interfaces, UI, schemas, lib, tools. |
 | `ARCHITECTURE.md` | Design truth. |
+| `ONBOARDING.md` | Cold-start reading order + verification commands. |
+| `WE_ARE_HERE_NOW.md` | Fast pickup note for a cold session. |
+| `NORTHSTARS.md` | Satisfied capabilities vs active horizons. |
+| `DEV_LOG.md` | Append-only milestone log. |
 | `SOURCE_PROVENANCE.md` | Provenance of any re-homed materials. |
 | `TOOLS.md` | Quick-reference tool index. |
 | `.parts/` | Read-only precursor reference materials (development only; not vended). |
 
 ## Reading order for a new agent
 
-1. `contracts/builder_constraint_contract.md` — acknowledge before any work.
-2. `ARCHITECTURE.md` — the spine, MVP-5 order, layer model.
-3. `TOOLS.md` — what tools exist and how to call them.
-4. The DB itself (`data/sidecar.db`) once initialized — it is self-orienting via `journal_meta` and the manifest tables.
+1. `ONBOARDING.md`
+2. `WE_ARE_HERE_NOW.md`
+3. `README.md`
+4. `IMPLEMENTATION_ROADMAP.md`
+5. `contracts/builder_constraint_contract.md`
+6. `ARCHITECTURE.md`
+7. `NORTHSTARS.md`
+8. `DEV_LOG.md`
+9. `TOOLS.md`
 
 ## Reading order for a new human
 
 1. This README.
-2. `ARCHITECTURE.md` for the design.
-3. The Tkinter UI (`python -m src.app ui`) once running, for live state and monitoring.
+2. `ONBOARDING.md`.
+3. `WE_ARE_HERE_NOW.md`.
+4. `ARCHITECTURE.md` for the design.
+5. The Tkinter UI (`python -m src.app ui`) once running, for live state and monitoring.
 
 ## Status
 
-This package is currently being scaffolded in **development scope** — i.e., `.scaffold/` *is* the active project being built, not yet vended into a host. See `contracts/builder_constraint_contract.md` §0.10 for the dual-scope definition.
+This package is currently being hardened in **development scope** — i.e., `.scaffold/` *is* the active project being built, not yet vended into a host. T5 reintroduced the local Ollama sidecar agent with bootstrap parity, approval-aware bounded writes, explicit session-backed authority rows, and operator controls; T6 completed the three-layer memory model with STM overflow into a Bag of Evidence, an Evidence Shelf surfaced in bootstrap/UI, and per-hunk code-change provenance. T7 now takes over the runtime-hardening horizon. See `contracts/builder_constraint_contract.md` §0.10 for the dual-scope definition.

@@ -64,7 +64,7 @@ A bundle of structural borrows committed during the planning phase. Full per-ite
 **Notes:**
 - The precursor `.parts/.dev-tools-REF/` remains untouched (read-only per contract §1.1).
 - Tools and code from the precursor have NOT been copied yet — that happens in Tranches 2–5 when the spine is up. Each code copy will get its own dated entry here.
-- Concepts deferred to later tranches (Bag/Shelf overflow, recovery flows, teaching sandbox harness, k8s wrapper, Ollama agent runtime) are listed in `IMPLEMENTATION_ROADMAP.md` "Files DEFERRED past prototype" — they will get provenance entries when adopted.
+- Concepts deferred to later tranches (Bag/Shelf overflow, recovery flows, teaching sandbox harness, k8s wrapper, Ollama agent runtime, per-hunk diff provenance, and related runtime hardening) are listed in `IMPLEMENTATION_ROADMAP.md` under the tranche-mapped deferred backlog and mirrored as open journal todos. They will get provenance entries when adopted.
 
 ---
 
@@ -168,7 +168,7 @@ A bundle of structural borrows committed during the planning phase. Full per-ite
 - **Status:** Additive branch-local record created for `.scaffold_BRANCH-02`. This entry exists to mark branch-specific cleanup without rewriting prior history.
 - **Type:** Original implementation and documentation updates in this branch. No precursor code copied for this adjustment.
 - **What changed:**
-  - corrected live-project `constrant` -> `constraint` spelling drift
+  - corrected live-project misspelling to `constraint`
   - added a typo-warning guard to `smoke_test.py`
   - hardened live outward-facing path surfaces so branch/runtime reporting prefers relative/public-safe labels over absolute local HDD paths
   - sanitized live DB/log records in this branch where machine-specific root strings had already been persisted
@@ -209,3 +209,88 @@ A bundle of structural borrows committed during the planning phase. Full per-ite
   - no UI-triggered mutation path in this tranche
 - **Approved by:** user (this conversation; explicit decision to preserve Tk identity, use the browser mock as reference only, and favor broader monitoring reach over a narrower UI port).
 - **Next:** T4 — proposal + approval cycle, building real approval affordances on top of the now-live Tk monitoring shell.
+
+---
+
+### 2026-05-13 — Tranche 4 (Approval Loop + Handoff Doctrine Uplift) — ORIGINAL CODE
+
+- **Status:** T4 ✓ COMPLETE. Approval queue, grant issuance, proposal-capable MCP, bounded workspace mutation path, and cold-team handoff docs landed together.
+- **Park record:** `_docs/T4_PARK_NOTES.md`; blob hash `ddcaa03882b28f0519f8872fbe08ab74b784468c7e5ffa7fc45adad32d58d4b9`; tranche journal entry `journal_18aeffe951e29fd0_686ec667`.
+- **Type:** Original implementation. Structural guidance came from the current branch architecture and the precursor's operator/runtime ideas, but no runtime code was copied wholesale.
+- **New files:**
+  - `src/managers/agent_session_manager.py`
+  - `src/managers/human_approval_manager.py`
+  - `src/lib/text_workspace.py`
+  - `src/tools/text_file_writer.py`
+  - `src/tools/directory_scaffold.py`
+  - `src/ui/handoff_panel.py`
+  - `DEV_LOG.md`
+  - `WE_ARE_HERE_NOW.md`
+  - `NORTHSTARS.md`
+- **Modified files:**
+  - `src/components/sqlite_store.py` — migration v7 (`agent_sessions`, `approval_requests`)
+  - `src/core/contracts.py` — grant-aware tool authority matching and scoped grant consumption
+  - `src/core/projections.py` — real `handoff` projection, pending approval aggregation, viewport/operator updates
+  - `src/core/router.py` — finalization wiring for approval requests and tool invocations
+  - `src/interfaces/mcp_interface.py` — `sidecar/submit`
+  - `src/interfaces/cli_interface.py` — approval/session operator commands
+  - `src/ui/contracts_panel.py`, `src/ui/main_window.py` — operator UI uplift
+  - docs: `README.md`, `ONBOARDING.md`, `ARCHITECTURE.md`, `IMPLEMENTATION_ROADMAP.md`, `TOOLS.md`, contract, provenance
+- **Borrow/adaptation notes:**
+  - bounded write safety patterns adapted conceptually from `.parts/.dev-tools/src/lib/text_workspace.py`
+  - old agent-runtime lessons informed the session/approval split, but this tranche rebuilt those concerns on the current spine instead of porting the older runtime forward
+- **Approved by:** user (this conversation; explicit request to treat this branch as the strangler replacement and finish setup as a cold-team-handoff substrate).
+
+---
+
+### 2026-05-13 — Tranche 5 (Local Sidecar Agent Reintegration) — ORIGINAL CODE
+
+- **Status:** T5 ✓ COMPLETE. Local Ollama-backed sidecar runtime restored inside the current substrate. Park notes: `_docs/T5_PARK_NOTES.md`; blob hash `bd0827915b9ca17d76a204c73e8032e2b5f56aec44eff021e73114ac37853e35`; tranche journal entry `journal_18af19e0c59104ec_fad65652`.
+- **Type:** Original implementation. The older `.parts/.dev-tools` local-agent experiment informed the runtime floor and operator shape, but no old runtime file was copied wholesale into this branch.
+- **New or materially landed surfaces:**
+  - `src/runtime/local_agent_runtime.py`
+  - `src/ui/local_agent_panel.py`
+  - local-agent CLI controls in `src/interfaces/cli_interface.py`
+- **Key hardening done in this tranche:**
+  - normalized local-agent writes onto the shared `text_file_writer` contract (`content` canonical, `body` compatibility alias)
+  - explicit authorities rows created for session-backed local/MCP actors through `agent_session_manager`
+  - cooperative stop support for long-running local-agent sessions
+  - smoke-backed proof that the local agent can bootstrap, request approval, complete a bounded workspace write, and surface its run through the spine
+- **Borrow/adaptation notes:**
+  - runtime/operator lessons were adapted from the old local-agent experiment in concept only
+  - the rebuilt T5 floor routes all actions through the current branch's envelope, grant, journal, and projection systems instead of reviving the older runtime as a parallel subsystem
+- **Approved by:** user (this conversation; explicit request to implement the next tranche and move the project beyond external stand-in agents).
+
+---
+
+### 2026-05-13 — Tranche 5.1 (Companion Monitor Default + UI Stability) — ORIGINAL CODE
+
+- **Status:** T5.1 ✓ COMPLETE. Follow-up stability/documentation tranche after T5.
+- **Type:** Original implementation. No precursor code copied; this tranche tightened operator ergonomics and monitoring truth within the current branch.
+- **What changed:**
+  - added `src/lib/ui_launcher.py` to spawn the Tk monitor as a companion process for agent-facing runs
+  - wired default monitor launch into MCP startup and local-agent CLI runs, with explicit `--no-ui` suppression
+  - preserved notebook/focus selection across Tk refreshes in `src/ui/main_window.py`
+  - aligned viewport drift checks with the smoke-test tranche-resolution rule in `src/core/projections.py`
+  - updated onboarding and continuity docs to describe the new default behavior and mark T5.1 as the latest parked tranche
+
+### 2026-05-13 — Tranche 6 (STM + Bag of Evidence + Evidence Shelf) — ORIGINAL CODE
+
+- **Status:** T6 ✓ COMPLETE. Park notes: `_docs/T6_PARK_NOTES.md`; blob hash `598a76da026c778f19bdc1a4c1597cc4405a12d051d830001e190fdf002a1309`; tranche journal entry `journal_18af1d7325d57744_83774848`.
+- **Original implementation in this branch:**
+  - `src/managers/memory_manager.py` introduces session-backed STM, Bag, Shelf, and change-hunk persistence inside the current SQLite spine
+  - `src/components/diff_builder.py` is now executable code rather than a prose stub
+  - `src/runtime/local_agent_runtime.py`, `src/tools/text_file_writer.py`, and `src/core/projections.py` were extended to persist and surface memory state instead of keeping it ephemeral
+- **Precursor influence, not code copy:**
+  - the Bag / Shelf conceptual flow and session-evidence framing continue to borrow from the old `.parts/.dev-tools` experiment
+  - the current implementation is a substrate-native rewrite that routes through the current branch's schema, router, tool contract, and projection surfaces rather than reviving the precursor runtime as-is
+- **Approved by:** user (this conversation; explicit request to make the monitor pop up by default when an agent runs the sidecar).
+
+### 2026-05-13 — Tranche 6.1 (Post-Park Continuity Alignment) — ORIGINAL DOC / TEST ALIGNMENT
+
+- **Status:** T6.1 ✓ COMPLETE. Follow-up continuity seal after T6 close.
+- **Type:** Original documentation and smoke-alignment work in this branch. No precursor code copied.
+- **What changed:**
+  - advanced continuity docs from “T6 active” to “T6/T6.1 parked, T7 next”
+  - aligned roadmap + architecture wording with the parked T6 memory-layer state
+  - updated smoke expectations so tranche-history and next-horizon checks track the real parked state instead of stale hard-coded assumptions

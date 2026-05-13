@@ -36,24 +36,30 @@ class SidecarState:
     evidence_manager: Any = None
     git_state_manager: Any = None
     tool_registry_manager: Any = None
+    agent_session_manager: Any = None
+    human_approval_manager: Any = None
+    memory_manager: Any = None
     tranche_manager: Any = None
     file_scanner: Any = None
     install_orchestrator: Any = None
     scan_orchestrator: Any = None
     agent_task_orchestrator: Any = None
     closeout_orchestrator: Any = None
+    local_agent_runtime: Any = None
     router: Any = None
 
     # Live registries (read-mostly; updated by event commit).
     registered_objects: dict = field(default_factory=dict)
     registered_tools: dict = field(default_factory=dict)
     active_task: dict | None = None
+    active_tool_context: dict = field(default_factory=dict)
     current_projections: dict = field(default_factory=dict)
     event_log_position: int = 0
 
     # Status snapshots refreshed by managers.
     journal_state: dict = field(default_factory=dict)
     evidence_bag_state: dict = field(default_factory=dict)
+    memory_state: dict = field(default_factory=dict)
     ontology_state: dict = field(default_factory=dict)
     agent_status: dict = field(default_factory=dict)
     human_ui_status: dict = field(default_factory=dict)
@@ -97,6 +103,7 @@ class SidecarState:
             "current_contract_acked": bool((self.current_contract or {}).get("acked_by")),
             "agent_status": dict(self.agent_status),
             "human_ui_status": dict(self.human_ui_status),
+            "memory_state": dict(self.memory_state),
         }
 
     # --- narrow mutators (called by event commit) ----------------------

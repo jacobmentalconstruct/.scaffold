@@ -1,9 +1,72 @@
 {
   "manifest_version": "1.0.0",
-  "generated_at": "2026-05-13T00:46:33.974Z",
+  "generated_at": "2026-05-13T11:51:53.153Z",
   "sidecar_id": "sc_18ae61e3f9a3edcc_44bb8a5d",
-  "tool_count": 5,
+  "tool_count": 7,
   "tools": [
+    {
+      "tool_name": "directory_scaffold",
+      "version": "1.0.0",
+      "entrypoint": "src/tools/directory_scaffold.py",
+      "category": "scaffold",
+      "summary": "Dry-run-first declarative scaffolding under workspaces or approved project paths.",
+      "mcp_name": "directory_scaffold",
+      "required_authority": "Apply",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          },
+          "confirm": {
+            "type": "boolean",
+            "default": false
+          },
+          "create_parents": {
+            "type": "boolean",
+            "default": true
+          },
+          "validate_files": {
+            "type": "boolean",
+            "default": false
+          },
+          "target_domain": {
+            "type": "string",
+            "enum": [
+              "workspace",
+              "project"
+            ],
+            "default": "workspace"
+          },
+          "allow_host_project_write": {
+            "type": "boolean",
+            "default": false
+          },
+          "protected_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "result_envelope_keys": [
+        "status",
+        "tool",
+        "input",
+        "result"
+      ],
+      "source_hash": "8bb357a56c2b3c6344158346312dd831b7006dbc6372f58486d486b40a853477",
+      "registered_at": "2026-05-13T11:51:53.065Z"
+    },
     {
       "tool_name": "file_tree_snapshot",
       "version": "1.0.0",
@@ -42,7 +105,7 @@
         "result"
       ],
       "source_hash": "7d04496e9f408b74272411fbe04781bcc01ddd439cf5db5ae0dc3d0467f612dd",
-      "registered_at": "2026-05-13T00:46:33.935Z"
+      "registered_at": "2026-05-13T11:51:53.066Z"
     },
     {
       "tool_name": "host_capability_probe",
@@ -63,7 +126,7 @@
         "result"
       ],
       "source_hash": "9da26b4e63861c87fd4aba2fa0b375669aa150822aa7a0a6ec987c1c6f724d89",
-      "registered_at": "2026-05-13T00:46:33.940Z"
+      "registered_at": "2026-05-13T11:51:53.071Z"
     },
     {
       "tool_name": "read_projection",
@@ -97,7 +160,7 @@
         "result"
       ],
       "source_hash": "a8de51b51fa4c4104bf219449bbfbe520fafc93416ad1a4d742dd91abe4ceb9f",
-      "registered_at": "2026-05-13T00:46:33.941Z"
+      "registered_at": "2026-05-13T11:51:53.076Z"
     },
     {
       "tool_name": "text_file_reader",
@@ -143,7 +206,89 @@
         "result"
       ],
       "source_hash": "eb082fb2b656d8f855a2a2da03c37e8fe0eb7eaa767b23513832220fb55e3684",
-      "registered_at": "2026-05-13T00:46:33.942Z"
+      "registered_at": "2026-05-13T11:51:53.077Z"
+    },
+    {
+      "tool_name": "text_file_writer",
+      "version": "1.0.0",
+      "entrypoint": "src/tools/text_file_writer.py",
+      "category": "write",
+      "summary": "Confirmed text writes to sidecar workspaces or approved host-project paths.",
+      "mcp_name": "text_file_writer",
+      "required_authority": "Apply",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string",
+            "default": ""
+          },
+          "body": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "create",
+              "overwrite",
+              "append"
+            ],
+            "default": "create"
+          },
+          "confirm": {
+            "type": "boolean",
+            "default": false
+          },
+          "overwrite": {
+            "type": "boolean",
+            "default": false
+          },
+          "create_dirs": {
+            "type": "boolean",
+            "default": false
+          },
+          "validate_after_write": {
+            "type": "boolean",
+            "default": false
+          },
+          "file_type": {
+            "type": "string"
+          },
+          "target_domain": {
+            "type": "string",
+            "enum": [
+              "workspace",
+              "project"
+            ],
+            "default": "workspace"
+          },
+          "allow_host_project_write": {
+            "type": "boolean",
+            "default": false
+          },
+          "protected_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "result_envelope_keys": [
+        "status",
+        "tool",
+        "input",
+        "result"
+      ],
+      "source_hash": "11834d90dadea31805a16c99e7cd27da7ea7440ff707759f42ce4f2d551b92a4",
+      "registered_at": "2026-05-13T11:51:53.077Z"
     },
     {
       "tool_name": "workspace_boundary_audit",
@@ -164,7 +309,7 @@
         "result"
       ],
       "source_hash": "1717c6225a8f0b5d9ede06164efc1b7b667c1999ad234b9a434b51344430f08b",
-      "registered_at": "2026-05-13T00:46:33.943Z"
+      "registered_at": "2026-05-13T11:51:53.078Z"
     }
   ],
   "categories": {
@@ -176,6 +321,12 @@
     ],
     "query": [
       "read_projection"
+    ],
+    "scaffold": [
+      "directory_scaffold"
+    ],
+    "write": [
+      "text_file_writer"
     ]
   }
 }

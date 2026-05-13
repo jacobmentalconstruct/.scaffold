@@ -422,6 +422,117 @@ _T2_5_DDL: tuple[str, ...] = (
 )
 
 
+# ----------------------------------------------------------------------------
+# Migration v7 — T4: approval loop + handoff doctrine uplift
+# ----------------------------------------------------------------------------
+
+_T4_DDL: tuple[str, ...] = (
+    """
+    CREATE TABLE IF NOT EXISTS agent_sessions (
+        session_id TEXT PRIMARY KEY,
+        actor_id TEXT NOT NULL,
+        channel TEXT NOT NULL,
+        client_name TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'active',
+        authority_level TEXT NOT NULL DEFAULT 'Propose',
+        started_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        last_envelope_id TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '{}'
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_agent_sessions_actor ON agent_sessions(actor_id);",
+    "CREATE INDEX IF NOT EXISTS idx_agent_sessions_seen ON agent_sessions(last_seen_at);",
+    """
+    CREATE TABLE IF NOT EXISTS approval_requests (
+        request_id TEXT PRIMARY KEY,
+        actor_id TEXT NOT NULL,
+        session_id TEXT,
+        source_channel TEXT NOT NULL DEFAULT '',
+        requested_level TEXT NOT NULL,
+        operation_intent TEXT NOT NULL,
+        scope_pattern_json TEXT NOT NULL DEFAULT '{}',
+        summary TEXT NOT NULL DEFAULT '',
+        justification TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'pending',
+        requested_at TEXT NOT NULL,
+        decided_at TEXT,
+        decided_by TEXT,
+        decision_reason TEXT NOT NULL DEFAULT '',
+        grant_id TEXT,
+        event_id TEXT NOT NULL
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_approval_status ON approval_requests(status);",
+    "CREATE INDEX IF NOT EXISTS idx_approval_actor ON approval_requests(actor_id);",
+    "CREATE INDEX IF NOT EXISTS idx_approval_requested ON approval_requests(requested_at);",
+)
+
+
+# ----------------------------------------------------------------------------
+# Migration v8 — T6: STM + Bag of Evidence + Evidence Shelf
+# ----------------------------------------------------------------------------
+
+_T6_DDL: tuple[str, ...] = (
+    """
+    CREATE TABLE IF NOT EXISTS session_memory_items (
+        memory_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        actor_id TEXT NOT NULL,
+        layer TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT '',
+        summary TEXT NOT NULL DEFAULT '',
+        content_ref TEXT,
+        source_kind TEXT NOT NULL DEFAULT '',
+        source_id TEXT NOT NULL DEFAULT '',
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        ordinal INTEGER NOT NULL DEFAULT 0,
+        promoted_to_journal_uid TEXT,
+        created_at TEXT NOT NULL,
+        last_accessed_at TEXT NOT NULL
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_session_memory_session_layer ON session_memory_items(session_id, layer, ordinal);",
+    "CREATE INDEX IF NOT EXISTS idx_session_memory_actor ON session_memory_items(actor_id, created_at);",
+    """
+    CREATE TABLE IF NOT EXISTS change_hunks (
+        hunk_id TEXT PRIMARY KEY,
+        tranche_id TEXT,
+        session_id TEXT,
+        actor_id TEXT NOT NULL,
+        path TEXT NOT NULL,
+        old_start INTEGER NOT NULL,
+        old_count INTEGER NOT NULL,
+        new_start INTEGER NOT NULL,
+        new_count INTEGER NOT NULL,
+        added_lines INTEGER NOT NULL DEFAULT 0,
+        removed_lines INTEGER NOT NULL DEFAULT 0,
+        diff_text_ref TEXT NOT NULL,
+        context_hash TEXT NOT NULL DEFAULT '',
+        summary TEXT NOT NULL DEFAULT '',
+        decision_id TEXT,
+        source_event_id TEXT,
+        created_at TEXT NOT NULL
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_change_hunks_tranche ON change_hunks(tranche_id, created_at);",
+    "CREATE INDEX IF NOT EXISTS idx_change_hunks_session ON change_hunks(session_id, created_at);",
+    "CREATE INDEX IF NOT EXISTS idx_change_hunks_path ON change_hunks(path, created_at);",
+    """
+    ALTER TABLE proj_agent_bootstrap
+    ADD COLUMN stm_json TEXT;
+    """,
+    """
+    ALTER TABLE proj_agent_bootstrap
+    ADD COLUMN bag_json TEXT;
+    """,
+    """
+    ALTER TABLE proj_agent_bootstrap
+    ADD COLUMN evidence_shelf_json TEXT;
+    """,
+)
+
+
 # Migration registry: version → (description, list of statements).
 # Migrations run in version order, idempotent.
 _MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
@@ -431,6 +542,8 @@ _MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
     (4, "T2.3 Git + Evidence + Tool Registry", _T2_3_DDL),
     (5, "T2.5 Active Tranche Ledger — decision_records + active_tranche", _T2_5_DDL),
     (6, "T3 Tk monitoring UI — viewport_state projection table", ()),
+    (7, "T4 Approval loop + handoff doctrine uplift", _T4_DDL),
+    (8, "T6 STM + Bag of Evidence + Evidence Shelf", _T6_DDL),
 )
 
 

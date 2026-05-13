@@ -132,20 +132,23 @@ class OllamaClient:
         Uses GET /api/tags (lists available models) to confirm liveness.
         """
         try:
-            url = f"{self._base_url}/api/tags"
-            req = urllib.request.Request(url, method="GET")
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                if resp.status != 200:
-                    return False
-                if model is None:
-                    return True
-                data = json.loads(resp.read().decode("utf-8"))
-                names = [m.get("name", "") for m in data.get("models", [])]
-                # Match loosely: "qwen3.5:9b" matches "qwen3.5:9b" exactly,
-                # or the base name without tag.
-                return any(
-                    n == model or n.split(":")[0] == model.split(":")[0]
-                    for n in names
-                )
+            names = self.list_models()
+            if model is None:
+                return True
+            return any(
+                n == model or n.split(":")[0] == model.split(":")[0]
+                for n in names
+            )
         except Exception:
             return False
+
+    def list_models(self) -> list[str]:
+        """Return available local Ollama model names from GET /api/tags."""
+        url = f"{self._base_url}/api/tags"
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            if resp.status != 200:
+                raise RuntimeError(f"Ollama /api/tags returned HTTP {resp.status}")
+            data = json.loads(resp.read().decode("utf-8"))
+        names = [m.get("name", "").strip() for m in data.get("models", []) if m.get("name")]
+        return [name for name in names if name]

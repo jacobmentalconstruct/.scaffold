@@ -1,6 +1,6 @@
 # IMPLEMENTATION_ROADMAP.md
 
-> **Status:** Tranche B output. Defines the First Working Prototype, the minimum-file slate to reach it, and the Tranche 1–5 ordering. References Tranche A output at `_docs/INCORPORATION_INVENTORY.md`.
+> **Status:** Living roadmap. T5/T5.1/T6/T6.1 are complete; schema v8 memory layering is parked, continuity alignment is sealed, and T7 is next. References Tranche A output at `_docs/INCORPORATION_INVENTORY.md`.
 
 ---
 
@@ -10,7 +10,7 @@ Tranche 0 produced the scaffold + plan files. Tranche A reviewed the precursor a
 
 All Decision Points are locked:
 
-- **DP1** Agent runtime out of scope for first prototype (agent-agnostic).
+- **DP1** Historical note: the earliest prototype plan kept agent runtime out of scope. This is now superseded by the T5–T9 setup-completion program below.
 - **DP2** Inventory at `_docs/INCORPORATION_INVENTORY.md`.
 - **DP3** This roadmap at top-level (here).
 - **DP4** Triage-focused depth (done).
@@ -57,24 +57,23 @@ Files marked **CODE** must be implemented; files marked **PLAN** stay as Tranche
 - `envelope_schema.py`, `event_schema.py` (with reserved nullable fields per Q4), `contract_schema.py`, `projection_schema.py`
 
 ### Components (`src/components/`) — all CODE
-- `sqlite_store.py`, `blob_store.py`, `file_scanner.py`, `git_reader.py` (minimal — observation only)
-- **PLAN only:** `diff_builder.py`, `patch_applier.py`, `test_runner.py` (T6+)
+- `sqlite_store.py`, `blob_store.py`, `file_scanner.py`, `git_reader.py` (minimal — observation only), `diff_builder.py`
+- **PLAN only:** `patch_applier.py`, `test_runner.py` (T6+)
 
 ### Managers (`src/managers/`)
-- **CODE:** `journal_manager.py`, `project_index_manager.py`, `evidence_manager.py` (lightweight — no Bag/Shelf overflow), `tool_registry_manager.py`, `git_state_manager.py`, `constraint_manager.py` (NEW per Q2)
-- **PLAN only:** `ontology_manager.py`, `agent_session_manager.py`, `human_approval_manager.py` (T6+)
+- **CODE:** `journal_manager.py`, `project_index_manager.py`, `evidence_manager.py` (lightweight — no Bag/Shelf overflow), `tool_registry_manager.py`, `git_state_manager.py`, `constraint_manager.py` (NEW per Q2), `agent_session_manager.py`, `human_approval_manager.py`
+- **PLAN only:** `ontology_manager.py` (T6+)
 
 ### Orchestrators (`src/orchestrators/`)
 - **CODE:** `install_orchestrator.py`, `scan_orchestrator.py`, `journal_orchestrator.py` (basic), `agent_task_orchestrator.py` (basic)
 - **PLAN only:** `scaffold_orchestrator.py` (T6+)
 
 ### Interfaces (`src/interfaces/`)
-- **CODE:** `cli_interface.py`, `mcp_interface.py` (read-only in T2; full in T3+)
+- **CODE:** `cli_interface.py`, `mcp_interface.py` (read-only in T2; proposal-capable in T4; local-agent operator support expands in T5+)
 - (Tk wiring lives in `src/ui/main_window.py`, not as a separate adapter.)
 
 ### UI (`src/ui/`)
-- **CODE:** `main_window.py`, `state_panel.py`, `journal_panel.py`, `evidence_panel.py`, `project_map_panel.py`
-- **PLAN only:** `contracts_panel.py` (lands in T4 with approval flow)
+- **CODE:** `main_window.py`, `state_panel.py`, `journal_panel.py`, `evidence_panel.py`, `project_map_panel.py`, `contracts_panel.py`, `handoff_panel.py`
 
 ### Lib (`src/lib/`) — all CODE
 - `logging_setup.py`, `common.py`
@@ -275,64 +274,202 @@ Per [INCORPORATION_INVENTORY.md §2.1](_docs/INCORPORATION_INVENTORY.md):
 
 ---
 
-### **Tranche 4 — Proposal & approval cycle**
+### **Tranche 4 — Proposal & approval cycle** — ✓ COMPLETE (2026-05-13)
 
-**Scope:** Full agent-proposes → human-approves → state-mutates loop. The contract gate enforces authority elevation. Apply-authority writes happen, but only with explicit per-envelope approval.
+**Status:** COMPLETE. The first real proposal → approval → bounded mutation loop works through the sidecar spine, and the cold-team handoff doctrine is now codified in both docs and projections.
 
-**Files implemented (~7 additional):**
-- `src/ui/`: contracts_panel (approval queue + grant/revoke UI)
-- `src/managers/`: agent_session_manager (track agent identity + authority), human_approval_manager (manage approval grants)
-- `src/tools/`: tools 12–18 (text_file_writer Apply-gated, directory_scaffold Sandbox-Execute-gated, session_evidence_store, text_file_validator, secret_surface_audit, repo_search, read_projection)
-- Full `agent_task_orchestrator` (accept_task → propose → request_authority_elevation → complete_task lifecycle)
-- mcp_interface upgrades from read-only to full (accepts envelope submissions from agents)
+**Metrics:**
+- schema version advanced to v7
+- new tables: `agent_sessions`, `approval_requests`
+- new root continuity docs: `WE_ARE_HERE_NOW.md`, `NORTHSTARS.md`, `DEV_LOG.md`
+- new tools: `text_file_writer`, `directory_scaffold`
 
-**Non-goals:** no Bag/Shelf overflow logic; no diff_builder / patch_applier (T6+); no test_runner (T6+); no snapshot orchestrator.
+**Evidence:**
+- park notes: [`_docs/T4_PARK_NOTES.md`](_docs/T4_PARK_NOTES.md)
+- park-notes blob hash: `ddcaa03882b28f0519f8872fbe08ab74b784468c7e5ffa7fc45adad32d58d4b9`
+- tranche journal entry: `journal_18aeffe951e29fd0_686ec667`
 
-**Completion criteria:**
-- An agent connected via MCP can: read its bootstrap packet, scan a file, propose a journal entry citing the file, request `Apply` authority elevation to write a new file in the host project, the request appears in the Tk approval queue, the human approves, the file gets written (or, in prototype, written to a sandbox workspace under `workspaces/<id>/`), an event is recorded, the relations land in the graph, the projections refresh.
-- The full proving loop §9 of ARCHITECTURE.md works end-to-end.
+**What landed:**
+- `agent_sessions` and `approval_requests` tables (migration v7)
+- `agent_session_manager` + `human_approval_manager`
+- `sidecar/submit` MCP path for non-tool envelopes
+- Tk `contracts_panel` approval queue actions
+- `handoff` projection
+- `text_file_writer` + `directory_scaffold` as the first approval-gated mutation tools
+- root continuity docs: `WE_ARE_HERE_NOW.md`, `NORTHSTARS.md`, `DEV_LOG.md`
 
-**Memory model status:** Full LTM operational. Contract gate enforces authority. The sidecar is a working organism.
+**Non-goals:** no local sidecar agent runtime yet; no STM / Bag-of-Evidence logic yet; no training harness yet; no broad host-project writes as the default execution path.
 
----
-
-### **Tranche 5 — End-to-end validation**
-
-**Scope:** Automated proof that the prototype works.
-
-**Files implemented:**
-- `smoke_test.py` extended to cover the full proving loop from §9 of ARCHITECTURE.md as an automated test sequence.
-- Possibly: a `tests/` directory with focused unit tests for the spine (envelope validation, router dispatch, contract gate edge cases). Decision deferred to T5 start.
-
-**Completion criteria:**
-- `python smoke_test.py` exits 0 with all proving-loop steps passing.
-- A "test project" subdirectory is included (small, ignorable) that smoke_test.py runs against.
-- Documentation updates: `README.md` shows the smoke-test invocation; `ARCHITECTURE.md` notes "MVP achieved" with a date.
-
-**Prototype is DONE when T5 completes and the user signs off on the smoke test.**
+**Completion criteria met:**
+- MCP-connected agents can acknowledge the contract and submit `request_authority_elevation` envelopes.
+- Approval requests appear in the Tk operator UI and in projection-backed handoff surfaces.
+- Approved single-use grants unlock bounded workspace writes through the registered tool path.
+- Cold-start continuity docs now exist at repo root and are part of the expected Park Phase surface.
+- T4 is now fully parked with tranche journal entry `journal_18aeffe951e29fd0_686ec667`.
 
 ---
 
-## Files DEFERRED past the first prototype
+## Setup Completion Program (T5–T9)
 
-These exist as Tranche-0 prose plans but are not implemented in T1–T5:
+T4 proved the approval loop and handoff doctrine, but it did **not** finish the supersession mission. From here forward, the goal is to bring this branch up to parity with the older local-agent experiment where that experiment was valuable, then exceed it on a cleaner substrate.
 
-| File / concept | Defer to | Reason |
+### **Tranche 5 — Local Sidecar Agent Reintegration** — ✓ COMPLETE (2026-05-13)
+
+**Status:** COMPLETE. Smoke test PASS with dedicated T5 runtime sections. The local Ollama-backed sidecar agent now runs inside the existing contract/envelope spine instead of being represented only by an external stand-in.
+
+**Metrics:**
+- new runtime package surface: `src/runtime/local_agent_runtime.py`
+- new Tk operator surface: `src/ui/local_agent_panel.py`
+- new CLI commands: `local-agent-status`, `local-agent-models`, `local-agent-preflight`, `local-agent-run`, `local-agent-stop`
+- new smoke sections: 65–68
+- no schema migration required; T5 builds on T4's `agent_sessions` + `approval_requests` tables
+
+**Evidence:**
+- park notes: [`_docs/T5_PARK_NOTES.md`](_docs/T5_PARK_NOTES.md)
+- park-notes blob hash: `bd0827915b9ca17d76a204c73e8032e2b5f56aec44eff021e73114ac37853e35`
+- tranche journal entry: `journal_18af19e0c59104ec_fad65652`
+
+**What landed:**
+- `LocalAgentRuntime` hosted by the sidecar and wired through `src/app.py`
+- Tk local-agent operator tab and matching CLI operator commands
+- bootstrap parity so the local agent consumes the same `agent_bootstrap` truth as external agents
+- approval-aware bounded local-agent writes through the existing envelope/grant path
+- explicit session-backed authority rows for local-agent actors
+- cooperative stop support for long-running local-agent sessions
+- compatibility hardening so local-agent writes normalize onto `text_file_writer`'s canonical `content` field
+
+**Non-goals kept intact:**
+- no STM / Bag of Evidence / Evidence Shelf yet
+- no run-trace / recovery taxonomy yet
+- no Teaching Sandbox or evaluation harness yet
+- no broad ungated host-project mutation
+
+**Completion criteria met:**
+- The sidecar can launch a local Ollama-backed agent inside the current architecture.
+- The local agent reads the same bootstrap truth as external agents.
+- The local agent can inspect, propose, request approval, and complete a bounded workspace write without bypassing the envelope chain.
+- The local agent is visible through Tk, CLI, projections, and session bookkeeping.
+
+### **Tranche 5.1 — Companion Monitor Default + UI Stability** — ✓ COMPLETE (2026-05-13)
+
+**Status:** COMPLETE. Small post-T5 stabilization tranche that parks the new operator-default behavior instead of carrying it informally into T6.
+
+**What landed:**
+- Tk monitor auto-launch for `python -m src.app mcp` unless `--no-ui` is supplied
+- Tk monitor auto-launch for `python -m src.app cli local-agent-run ...` unless `--no-ui` is supplied
+- notebook/focus preservation during refresh so the UI no longer snaps back to `Dashboard`
+- viewport drift-check logic aligned with smoke-test continuity truth
+- onboarding/readme updates documenting the new default behavior
+
+**Completion criteria met:**
+- agent-facing runs launch the monitor by default unless explicitly suppressed
+- the Tk UI preserves the active tab across refreshes
+- the drift banner only warns on real continuity drift
+- continuity docs and smoke remain in sync after the change
+
+### **Tranche 6 — STM + Bag of Evidence + Evidence Shelf** — ✓ COMPLETE (2026-05-13)
+
+**Scope:** Promote the memory model from LTM-only + reserved fields into a real three-layer stack.
+
+**Target files / surfaces:**
+- explicit STM state for the local sidecar agent session
+- Bag of Evidence archival + retrieval surfaces
+- Evidence Shelf summary surface for UI and bootstrap consumption
+- `agent_bootstrap` and Tk monitoring updates so the memory layers are visible without conflating STM and LTM
+- per-hunk diff provenance with file + old/new line ranges for bounded writes
+
+**Evidence:**
+- park notes: [`_docs/T6_PARK_NOTES.md`](_docs/T6_PARK_NOTES.md)
+- park-notes blob hash: `598a76da026c778f19bdc1a4c1597cc4405a12d051d830001e190fdf002a1309`
+- tranche journal entry: `journal_18af1d7325d57744_83774848`
+
+**What landed:**
+- schema v8: `session_memory_items` + `change_hunks`
+- local-agent runtime STM capture and overflow into Bag rows
+- Evidence Shelf summaries exposed in `agent_bootstrap` and `viewport_state`
+- real `diff_builder.py` plus bounded-write hunk capture
+- smoke coverage for memory layers and line-range provenance
+
+**Completion criteria met:**
+- Explicit STM exists for the local agent session.
+- Bag of Evidence persists overflow from the working window.
+- Evidence Shelf provides a compact handoff working set to both the local agent and the human operator.
+
+### **Tranche 6.1 — Post-Park Continuity Alignment** — ✓ COMPLETE (2026-05-13)
+
+**Scope:** Reconcile continuity docs and smoke assumptions after T6 close so the latest parked tranche, active horizon, roadmap parser, and architecture drift checks all agree mechanically.
+
+**What landed:**
+- continuity docs updated to name the correct parked tranche and active horizon
+- roadmap + architecture wording aligned with the newly parked T6 memory layer
+- smoke hardened so historical checks do not fail on stale tranche-count assumptions or hard-coded horizon text
+
+**Completion criteria met:**
+- docs, handoff packet, and roadmap all agree on the parked state
+- smoke passes after the continuity alignment itself
+- T7 remains the clear next tranche
+
+### **Tranche 7 — Run Trace, Recovery, and Operator Cockpit**
+
+**Scope:** Bring back the old runtime hardening layer so the local agent is observable and recoverable.
+
+**Target files / surfaces:**
+- run-trace persistence for local-agent runs, rounds, approvals, touched paths, and linked evidence/journal refs
+- recovery classification for model transport, malformed tool calls, schema errors, tool failures, approval stops, and max-round exhaustion
+- Tk operator-cockpit uplift for run inspection, recovery hints, retry controls, and session heartbeat visibility
+- projection and handoff updates so runtime trace state is visible without leaving the sidecar shell
+
+**Completion criteria:**
+- Successful and failed local runs produce inspectable trace records.
+- Recovery classes and retry guidance surface in the Tk operator shell.
+- Final claims can be grounded in touched paths, evidence, or journal references.
+
+### **Tranche 8 — Teaching Sandbox + Training Runway**
+
+**Scope:** Reincorporate deterministic training/evaluation infrastructure as part of the substrate, not as a separate experimental branch.
+
+**Completion criteria:**
+- A minimal scenario set runs through the local agent deterministically.
+- Scorecards, trace links, evidence refs, and journal records are produced for review.
+- Training docs explain the reviewer protocol to a cold team.
+
+### **Tranche 9 — Installed-Project Proof + Vendability Seal**
+
+**Scope:** Prove this branch can replace the older system as the default operating substrate for new projects.
+
+**Completion criteria:**
+- One fresh installed-project proving loop completes end to end.
+- The result can be handed to an ignorant team using only the docs, DB, UI, and verification commands already in the repo.
+- The old experiment is formally superseded by this branch.
+
+**Substrate baseline is achieved when T9 completes and the user signs off on the installed-project proof.**
+
+---
+
+## Deferred backlog normalized by tranche
+
+Deferred work must not live only in chat or in scattered prose. Each item below has a target tranche or horizon and must also exist as an open `kind='todo'` journal entry until resolved or explicitly superseded.
+
+| Deferred item | Target tranche / horizon | Why it is deferred / what it unlocks |
 |---|---|---|
-| `src/components/diff_builder.py` | T6 | Required for patch proposals beyond simple file writes. |
-| `src/components/patch_applier.py` | T6 | Same. |
-| `src/components/test_runner.py` | T6 | Sandbox test execution. |
-| `src/orchestrators/scaffold_orchestrator.py` | T6 | Beyond prototype scope. |
-| `src/managers/ontology_manager.py` | T6+ | Object-type / tag registry beyond minimal MVP needs. |
-| Bag / Shelf overflow logic in `evidence_manager.py` | T7+ | Per memory model — needed when we run our own local agent (DP1 deferred). |
-| `recovery_class` *use* (field reserved in T1) | T7+ | Same. |
-| Snapshot orchestrator (`snapshots.py` adoption) | T6+ | Useful for audit; not first-prototype critical. |
-| Teaching Sandbox / Training Runway | T13+ | Schema fields reserved in T1; harness deferred. |
-| Onboarding HTML microsite | DP5 — deferred indefinitely | Not blocking; rebuild later if needed. |
-| `_v2-pod/` containerization | DP6 — deferred indefinitely | Not blocking. |
-| Local agent runtime (Ollama-backed) | DP1 — Phase 2+ | First prototype is agent-agnostic. |
-| `_manifold-mcp/` corpus / hypergraph adoption | T8+ if ever | INSPIRE only — not adopting the data model. |
-| Most of the 50 precursor tools (32 of them) | T6+ on a case basis | First prototype needs only the 18 in §2.1. |
+| Generic actor bootstrap hardening beyond session-backed rows | T7 | T5 created explicit authorities rows for session-backed actors; finish removing default-by-prefix dependence outside that path. |
+| Concurrent Tk + MCP + local-agent workload verification | T7 | T5 proved the floor; longer soak and heavier concurrency stress still need a dedicated hardening pass. |
+| `src/components/patch_applier.py` | T6 | Pairs with diff proposals so approved text changes can apply as structured hunks. |
+| Per-hunk line provenance + diff evidence linkage refinements | T7 / T6.x if split later | Exact hunk rows exist after T6; remaining work is deeper decision/evidence linkage and any optional summaries. |
+| `src/components/test_runner.py` | T6 | Enables bounded verification runs as part of local-agent workflows. |
+| `src/orchestrators/scaffold_orchestrator.py` | T6 | Deepens guarded mutation beyond the T4 workspace-first file-write floor. |
+| Contract revision-aware seed / contract versioning | T7 | Replaces in-place contract upsert with explicit supersession semantics. |
+| Constraint decomposition tooling + `src/managers/ontology_manager.py` | T6+ | Helpful for richer reasoning and object typing, but not critical before the first local-agent loop. |
+| Run trace spine + `recovery_class` consumption | T7 | Makes local-agent runs inspectable, classifiable, and retryable. |
+| HARD_BLOCK enforcement hardening | T7 | Move from advisory gate checks to stricter end-to-end enforcement where appropriate. |
+| Snapshot cadence decision + snapshot orchestrator adoption | T7 | Needed once runtime trace/recovery and audit expectations rise. |
+| Schema migration test harness | T7 | Raises confidence as the schema and runtime surfaces become more stateful. |
+| Teaching Sandbox + Training Runway | T8 | Rebuild deterministic training/eval on top of the cleaned-up substrate. |
+| Remaining precursor tools beyond the current registry | T6+ on a case basis | Only adopt tools that materially strengthen the substrate; do not bulk-port the precursor. |
+| Optional HTTP MCP transport evaluation | T9+ / Phase 2 | `stdio` is the default vendable path; HTTP remains optional future expansion only if justified. |
+| `_manifold-mcp/` corpus / hypergraph adoption | T8+ if ever | INSPIRE only; not part of the core substrate unless a later tranche deliberately adopts pieces. |
+| Onboarding HTML microsite | DP5 — deferred indefinitely | Useful only if the text-first continuity set proves insufficient. |
+| `_v2-pod/` containerization | DP6 — deferred indefinitely | Not needed for the local-first substrate baseline. |
 
 ---
 
@@ -340,18 +477,18 @@ These exist as Tranche-0 prose plans but are not implemented in T1–T5:
 
 (Per inventory §1.1, item 1.8 — adopted as a lightweight pattern.)
 
-### Active scope (T1–T5)
+### Active scope (T1–T6 complete; T7 next)
 - Spine integrity (envelope, router, contract gate, event log, graph, projections).
 - LTM operational (journal, projections, project_index).
 - Read-only MCP for external agents.
 - Tk dashboard for humans.
-- Agent-propose / human-approve cycle with Apply-authority gating.
+- Agent-propose / human-approve cycle with workspace-first Apply-authority gating.
+- Local Ollama sidecar runtime with bootstrap parity, approval-aware bounded writes, and operator controls.
 - Sandboxed file writes via `workspaces/`.
 - Smoke-tested proving loop.
 
-### Later expansion (post-prototype)
+### Supersession horizons (T5+)
 - Bag / Shelf evidence overflow + sliding-window agent memory management.
-- Local agent runtime (Ollama-backed).
 - Diff/patch infrastructure beyond simple writes.
 - Snapshot system (Merkle-rooted DB snapshots).
 - Teaching Sandbox + Training Runway.
@@ -362,7 +499,6 @@ These exist as Tranche-0 prose plans but are not implemented in T1–T5:
 
 ### Explicit non-goals
 - No tool that mutates the host project tree without `Apply` authority + explicit per-envelope human approval.
-- No agent runtime baked into the sidecar before Phase 2.
 - No external runtime dependencies beyond Python stdlib (per contract Pledge 1).
 - No sub-agents, web browsing, image generation, or full terminal parity in Phase 1.
 

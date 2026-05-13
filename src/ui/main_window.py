@@ -1,10 +1,10 @@
 """
 FILE: src/ui/main_window.py
-ROLE: Tkinter monitoring console for the sidecar.
-WHAT IT DOES: Launches a read-only Tk UI that surfaces the sidecar's
-              monitoring state through a unified dashboard plus detailed
-              tabs for state, journal, evidence, project map, and
-              contract visibility.
+ROLE: Tkinter operator console for the sidecar.
+WHAT IT DOES: Launches a Tk UI that surfaces monitoring state plus the
+              approval/operator surfaces added in T4 through a unified
+              dashboard and detailed tabs for state, journal, evidence,
+              project map, contracts, and handoff.
 """
 
 from __future__ import annotations
@@ -17,7 +17,9 @@ from tkinter.scrolledtext import ScrolledText
 from src.lib.common import now_iso
 from src.ui.contracts_panel import ContractsPanel
 from src.ui.evidence_panel import EvidencePanel
+from src.ui.handoff_panel import HandoffPanel
 from src.ui.journal_panel import JournalPanel
+from src.ui.local_agent_panel import LocalAgentPanel
 from src.ui.project_map_panel import ProjectMapPanel
 from src.ui.state_panel import StatePanel
 
@@ -182,11 +184,17 @@ class DashboardView(ttk.Frame):
             f"sidecar_root: {present.get('current_state', {}).get('sidecar_root', '')}",
             f"event_log_position: {present.get('current_state', {}).get('event_log_position', 0)}",
             f"registered_tools: {present.get('current_state', {}).get('registered_tool_count', 0)}",
+            f"pending_approvals: {present.get('pending_approvals', 0)}",
+            f"local_agent_status: {(present.get('current_state', {}).get('agent_status') or {}).get('status', 'idle')}",
+            f"stm_count: {(present.get('memory', {}) or {}).get('stm_count', 0)}",
+            f"bag_count: {(present.get('memory', {}) or {}).get('bag_count', 0)}",
+            f"shelf_count: {(present.get('memory', {}) or {}).get('shelf_count', 0)}",
             "",
             "Current Agent",
             f"actor_id: {present.get('current_agent', {}).get('actor_id', 'none')}",
             f"last_operation: {present.get('current_agent', {}).get('last_operation_intent', 'n/a')}",
             f"last_seen_at: {present.get('current_agent', {}).get('last_seen_at', 'n/a')}",
+            f"active_sessions: {len(present.get('agent_sessions', []))}",
             "",
             "Latest Scan",
             f"scan_id: {present.get('latest_scan', {}).get('scan_id', 'n/a')}",
@@ -224,6 +232,12 @@ class DashboardView(ttk.Frame):
                 for row in future.get("open_todos", [])
             ],
             "",
+            "Evidence Shelf",
+            *[
+                f"- {row.get('summary', '')}"
+                for row in present.get("memory", {}).get("evidence_shelf", [])
+            ],
+            "",
             "Open Questions",
             *[f"- {line}" for line in future.get("open_questions", [])],
         ]
@@ -239,7 +253,7 @@ class MonitoringConsole(ttk.Frame):
         self.state = state
         self._tab_ids: dict[str, str] = {}
 
-        self.master.title(".scaffold — Tk Monitoring Console")
+        self.master.title(".scaffold — Tk Operator Console")
         self.master.geometry("1680x1020")
         self.master.minsize(1240, 820)
 
@@ -251,7 +265,7 @@ class MonitoringConsole(ttk.Frame):
         master.columnconfigure(0, weight=1)
         master.rowconfigure(0, weight=1)
 
-        self._title_var = tk.StringVar(value=".SCAFFOLD — Sidecar Monitoring Console")
+        self._title_var = tk.StringVar(value=".SCAFFOLD — Sidecar Operator Console")
         self._status_var = tk.StringVar(value="Booting UI...")
         self._drift_var = tk.StringVar(value="")
         self._path_var = tk.StringVar(value=".")
@@ -309,7 +323,9 @@ class MonitoringConsole(ttk.Frame):
         self._journal_panel = JournalPanel(self._notebook)
         self._evidence_panel = EvidencePanel(self._notebook, self.state)
         self._project_map_panel = ProjectMapPanel(self._notebook)
-        self._contracts_panel = ContractsPanel(self._notebook)
+        self._contracts_panel = ContractsPanel(self._notebook, self.state)
+        self._local_agent_panel = LocalAgentPanel(self._notebook, self.state)
+        self._handoff_panel = HandoffPanel(self._notebook)
 
         self._add_tab("dashboard", "Dashboard", self._dashboard)
         self._add_tab("state", "State", self._state_panel)
@@ -317,6 +333,8 @@ class MonitoringConsole(ttk.Frame):
         self._add_tab("evidence", "Evidence", self._evidence_panel)
         self._add_tab("projmap", "Project Map", self._project_map_panel)
         self._add_tab("contracts", "Contracts", self._contracts_panel)
+        self._add_tab("localagent", "Local Agent", self._local_agent_panel)
+        self._add_tab("handoff", "Handoff", self._handoff_panel)
 
     def _build_status_bar(self) -> None:
         status = ttk.Frame(self, padding=(10, 4))
@@ -349,12 +367,13 @@ class MonitoringConsole(ttk.Frame):
     def _load_bundle(self) -> dict:
         self.state.human_ui_status.update(
             {
-                "mode": "observational",
+                "mode": "operator",
                 "active_tab": self._notebook.tab(self._notebook.select(), "text"),
                 "last_poll_at": now_iso(),
             }
         )
         self.state.projections.refresh("viewport_state")
+        self.state.projections.refresh("handoff")
 
         viewport_row = _first_row(self.state.projections.read("viewport_state").rows)
         current_state_row = _first_row(self.state.projections.read("current_sidecar_state").rows)
@@ -364,6 +383,7 @@ class MonitoringConsole(ttk.Frame):
         journal_rows = self.state.projections.read("journal_timeline").rows
         evidence_rows = self.state.projections.read("evidence_bag").rows
         project_rows = self.state.projections.read("project_map").rows
+        handoff_row = _first_row(self.state.projections.read("handoff").rows)
 
         contract_text = ""
         blob_ref = (self.state.current_contract or {}).get("text_blob_ref")
@@ -382,11 +402,27 @@ class MonitoringConsole(ttk.Frame):
             "recent_events": _loads(contract_status_row.get("recent_contract_events_json"), []),
         }
         human_dashboard = {
+            "pending_approvals": _loads(human_dashboard_row.get("pending_approvals_json"), []),
             "recent_journal": _loads(human_dashboard_row.get("recent_journal_json"), []),
             "unresolved_issues": _loads(human_dashboard_row.get("unresolved_issues_json"), []),
             "current_tranche_scope": _loads(human_dashboard_row.get("current_tranche_scope_json"), {}),
             "last_scan_summary": _loads(human_dashboard_row.get("last_scan_summary_json"), {}),
         }
+        handoff = {
+            "latest_closed_tranche": _loads(handoff_row.get("latest_closed_tranche_json"), {}),
+            "active_tranche": _loads(handoff_row.get("active_tranche_json"), {}),
+            "active_horizon": _loads(handoff_row.get("active_horizon_json"), {}),
+            "open_questions": _loads(handoff_row.get("open_questions_json"), []),
+            "reading_order": _loads(handoff_row.get("reading_order_json"), []),
+            "verification_commands": _loads(handoff_row.get("verification_commands_json"), []),
+        }
+        operator_row = self.state.store.query_one(
+            """
+            SELECT actor_id FROM acknowledgments
+            WHERE actor_id LIKE 'human:%'
+            ORDER BY acknowledged_at DESC LIMIT 1;
+            """
+        )
 
         viewport = {
             "topbar": _loads(viewport_row.get("topbar_json"), {}),
@@ -407,14 +443,20 @@ class MonitoringConsole(ttk.Frame):
             "project_map": project_rows,
             "contract_status": contract_status,
             "contract_text": contract_text,
+            "approval_queue": human_dashboard.get("pending_approvals", []),
             "human_dashboard": human_dashboard,
             "tranche_checklist": tranche_rows,
+            "handoff": handoff,
+            "default_operator_actor": operator_row["actor_id"] if operator_row else "human:ui",
         }
 
     def _apply_bundle(self, bundle: dict) -> None:
         viewport = bundle["viewport"]
         topbar = viewport.get("topbar", {})
         status_bar = viewport.get("status_bar", {})
+        selected_focus = self._focus_tree.selection()
+        selected_focus_id = selected_focus[0] if selected_focus else ""
+        current_tab_widget = self._notebook.select()
 
         project_root = topbar.get("project_root", ".")
         sidecar_root = topbar.get("sidecar_root", ".")
@@ -444,8 +486,14 @@ class MonitoringConsole(ttk.Frame):
                 iid=focus.get("id", ""),
                 values=(focus.get("label", ""), focus.get("count", 0)),
             )
-        if not self._focus_tree.selection():
-            self._focus_tree.selection_set("dashboard")
+        if selected_focus_id and self._focus_tree.exists(selected_focus_id):
+            self._focus_tree.selection_set(selected_focus_id)
+        else:
+            current_focus_id = self._focus_id_for_tab(current_tab_widget)
+            if current_focus_id and self._focus_tree.exists(current_focus_id):
+                self._focus_tree.selection_set(current_focus_id)
+            elif self._focus_tree.exists("dashboard"):
+                self._focus_tree.selection_set("dashboard")
 
         self._dashboard.refresh(bundle)
         self._state_panel.refresh(bundle)
@@ -453,6 +501,14 @@ class MonitoringConsole(ttk.Frame):
         self._evidence_panel.refresh(bundle)
         self._project_map_panel.refresh(bundle)
         self._contracts_panel.refresh(bundle)
+        self._local_agent_panel.refresh(bundle)
+        self._handoff_panel.refresh(bundle)
+
+        if current_tab_widget:
+            try:
+                self._notebook.select(current_tab_widget)
+            except tk.TclError:
+                pass
 
         self._status_var.set(
             " | ".join(
@@ -467,6 +523,12 @@ class MonitoringConsole(ttk.Frame):
                 ]
             )
         )
+
+    def _focus_id_for_tab(self, tab_widget: str) -> str:
+        for focus_id, widget_id in self._tab_ids.items():
+            if widget_id == tab_widget:
+                return focus_id
+        return ""
 
 
 def run(state) -> int:

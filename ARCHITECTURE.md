@@ -1,6 +1,6 @@
 # ARCHITECTURE.md — Design Truth
 
-> **Status:** Tranche B revision. Folds in the Memory Model + Operational Rituals + Cross-cutting Principles + Constraint Registry from precursor doctrine review (see [`_docs/INCORPORATION_INVENTORY.md`](_docs/INCORPORATION_INVENTORY.md)). The original Tranche 0 design (sections 1–11 below, renumbered) is preserved verbatim where it stood; new content is in §3, §12, §13, §14.
+> **Status:** Revised through T5. Folds in the Memory Model + Operational Rituals + Cross-cutting Principles + Constraint Registry from precursor doctrine review (see [`_docs/INCORPORATION_INVENTORY.md`](_docs/INCORPORATION_INVENTORY.md)). The original Tranche 0 design (sections 1–11 below, renumbered) is preserved where it still matches shipped behavior; later tranches update the document as the substrate becomes real.
 
 > The code in `src/` is being scaffolded toward this design. As code lands, this document remains the authoritative source for *intent*; the code is the authoritative source for *behavior*. Drift between the two is a defect.
 
@@ -51,7 +51,7 @@ Each piece is durable, addressable, re-readable across sessions, and constitutes
 
 The sliding window inside the agent's current context. Provides *causal perspective* — "here's what we just talked about," "here's the envelope I'm currently constructing," "here's the projection I just read."
 
-Bounded by the LLM's context window. **In our first prototype the agent is external (e.g., Claude Code via MCP), so STM is managed by the agent's runtime, not by the sidecar.** When we eventually run our own local agent (DP1 deferred), the sidecar will manage STM directly.
+Bounded by the LLM's context window. **MCP-connected agents still manage STM in their own runtime.** The local sidecar agent now has an explicit sidecar-managed STM layer backed by `session_memory_items`: prompt, raw model response, chosen action, tool result, and related metadata accumulate there while the run is active.
 
 ### 3.3 Bag of Evidence — the bridge
 
@@ -59,13 +59,14 @@ When STM overflows (the context window is about to be exceeded), items archive i
 
 The flow (precursor terminology, adopted): `Window → Archive → Shelf → Retrieve → Promote`.
 
-The Bag is what lets a multi-turn agent session exceed the context window without losing continuity. On a new session, the agent boots from LTM (journal + projections); the prior session's Bag may or may not be loaded.
+The Bag is what lets a multi-turn agent session exceed the context window without losing continuity. On a new session, the agent boots from LTM (journal + projections); the prior session's Bag may or may not be loaded. In the current implementation, older STM rows overflow into `layer='bag'` rows, and a compact **Evidence Shelf** is derived from STM, Bag, pending loops, and recent code-change hunks.
 
 ### 3.4 Status in the first prototype
 
 - **LTM:** fully built out (journal_manager, project_index_manager, evidence_manager, projections, event log).
-- **STM:** out of scope (managed externally by the agent client).
-- **Bag of Evidence:** **schema fields reserved on `events` and `evidence` tables** (`session_id`, `evidence_kind`, `body_hash`, `summary`, `is_durable`), but the overflow logic and promotion flows are **DEFERRED** until we run our own local agent. See `IMPLEMENTATION_ROADMAP.md` deferred list.
+- **STM:** implemented for the local sidecar agent via session-backed memory rows. MCP agents still manage their own external context windows.
+- **Bag of Evidence:** implemented for the local sidecar agent as overflow from STM into persistent session-scoped Bag rows.
+- **Evidence Shelf:** implemented as a derived working set for bootstrap/UI consumption, including recent STM, Bag recall, open loops, and code-change provenance.
 
 ### 3.5 Why this matters for design decisions
 
@@ -295,6 +296,10 @@ When a tranche of meaningful work completes, the **Park Phase** produces a struc
     - `related_path` pointing at the park notes file.
 
 5. **Update continuity docs (explicit checklist).** Every item below must be touched, otherwise smoke test drift-detection (step 6) will fail:
+    - **`ONBOARDING.md`** — reading order and verification commands reflect current surfaces.
+    - **`WE_ARE_HERE_NOW.md`** — fast pickup note reflects the latest parked tranche and active horizon.
+    - **`NORTHSTARS.md`** — satisfied substrate capabilities and active horizons updated.
+    - **`DEV_LOG.md`** — append-only milestone narrative extended for the tranche.
     - **`IMPLEMENTATION_ROADMAP.md`** — mark the tranche `✓ COMPLETE` with metrics + evidence hash + the tranche journal entry's uid + the `task_completed` event id.
     - **`SOURCE_PROVENANCE.md`** — append a dated entry distinguishing original code from structurally-borrowed patterns; cite evidence hashes; record the new journal entry uid.
     - **`TOOLS.md`** — regenerate/update so the registered-tools table row count equals `tool_registry` table row count. Any tools added in the tranche get a row here.
@@ -303,6 +308,9 @@ When a tranche of meaningful work completes, the **Park Phase** produces a struc
     - Any other doc with a status banner referencing a prior tranche.
 
 6. **Re-verify.** Run `python smoke_test.py` again. The drift-detection sections (introduced 2026-05-11) verify mechanically that step 5 was performed:
+    - `WE_ARE_HERE_NOW.md` exists and names the latest parked tranche + active horizon.
+    - `DEV_LOG.md` exists and contains an entry for the latest closed tranche.
+    - `NORTHSTARS.md` exists and reflects the current active horizon.
     - `TOOLS.md` row count equals `tool_registry` count.
     - `README.md` status header does not name a prior tranche as current.
     - `ARCHITECTURE.md §15` has `Resolved at T_n` for every completed tranche.
@@ -443,15 +451,44 @@ See [`src/managers/constraint_manager.py`](src/managers/constraint_manager.py) f
 - **Contracts panel staging** — PARTIALLY RESOLVED: a read-only `contracts_panel` landed in T3 so humans can inspect contract status, acknowledgments, and recent contract-related events. Approval queue actions and grant/revoke controls remain a T4 concern.
 - **Process model first exercise** — PARTIALLY RESOLVED: the Tk surface now exists as a real `ui` app mode reading the SQLite spine. Sustained concurrent MCP + Tk usage against the same store is still deferred, but the "single store, multiple surfaces" architecture is now materially exercised.
 
+### Resolved at T4 (2026-05-13)
+
+- **Approval UX** — RESOLVED: the Tk `contracts_panel` now shows the pending approval queue and dispatches `approve_authority_request` / `reject_authority_request` envelopes through the same spine as every other mutation.
+- **Proposal-capable MCP** — RESOLVED: MCP now exposes `sidecar/submit`, allowing agents to acknowledge the contract and submit proposal/approval intents without bypassing the envelope chain.
+- **Agent session bookkeeping** — RESOLVED: `agent_sessions` now provide durable MCP session tracking, visible to both the UI and the handoff surfaces.
+- **Cold-team handoff doctrine** — RESOLVED: `WE_ARE_HERE_NOW.md`, `NORTHSTARS.md`, `DEV_LOG.md`, and the `handoff` projection promote continuity into first-class, mechanically-enforced project state.
+- **Workspace-first guarded mutation** — RESOLVED: approval-scoped `text_file_writer` and `directory_scaffold` land the first bounded mutation path without broadening host-project authority.
+
+### Resolved at T5 (2026-05-13)
+
+- **Local sidecar runtime floor** — RESOLVED: the sidecar now hosts a local Ollama-backed agent inside the existing contract/envelope spine, with a narrow floor of bootstrap, inspect, propose, approval request, bounded workspace write, and journaled completion/failure.
+- **Bootstrap parity across agent surfaces** — RESOLVED: the local agent reads the same `agent_bootstrap` PAST/PRESENT/FUTURE truth as MCP-connected agents instead of relying on an ad hoc internal prompt path.
+- **Session-backed actor registration** — RESOLVED for runtime sessions: touching a local or MCP session now ensures an explicit authorities row exists, reducing reliance on default-by-prefix authority inference for session-backed actors.
+- **Operator controls for the local runtime** — RESOLVED: Tk and CLI both expose local-agent status, model/preflight checks, run entry, and cooperative stop controls.
+
+### Resolved at T5.1 (2026-05-13)
+
+- **Companion monitor default** — RESOLVED: agent-facing runs now launch the Tk monitor by default, with explicit headless opt-out flags where needed.
+- **Tk refresh selection stability** — RESOLVED: the monitoring console preserves the active tab and matching focus selection across refreshes instead of forcing a return to the dashboard.
+- **Viewport drift-warning parity** — RESOLVED: the drift banner now uses the same tranche-resolution interpretation as smoke, so it only warns on real continuity drift.
+
+### Resolved at T6 (2026-05-13)
+
+- **Explicit STM for the local sidecar agent** — RESOLVED: the local runtime now persists working-window memory into session-backed SQLite rows instead of relying on ephemeral prompt-only context.
+- **Bag of Evidence overflow path** — RESOLVED: older local working context overflows from STM into a distinct Bag layer so continuity survives beyond the immediate session window without pretending to be LTM.
+- **Evidence Shelf surfaced to humans and agents** — RESOLVED: a compact working set derived from STM, Bag, and recent change provenance now appears in both `agent_bootstrap` and the Tk monitoring surfaces.
+- **Per-hunk line provenance for bounded writes** — RESOLVED: bounded text writes now persist exact diff-hunk rows with file path, old/new line ranges, raw diff text refs, and session linkage.
+
 ### Still open (deferred to later tranches)
 
-- **Concurrent multi-process behavior:** the Tk UI and MCP server now both exist as real surfaces, but long-lived concurrent use against the same SQLite spine has not yet been stress-tested. Expect WAL + busy_timeout to carry the prototype; verify under T4/T5 workload.
-- **MCP transport:** stdio vs HTTP. Default to stdio for vendability. Decide in T2 when MCP interface is built.
-- **Approval UX:** monitoring-only `contracts_panel` exists in T3; the actual approval queue shape (modal vs queue panel vs staged grant rail) remains a T4 decision.
-- **Snapshot cadence:** on tranche close, on demand, both? Decide when building snapshot_orchestrator (T6+, deferred).
-- **Schema migration test harness:** plan but defer.
-- **Bag/Shelf overflow logic:** schema fields reserved (T1 ✓). Overflow flows deferred until we run our own local agent (Phase 2+).
-- **HARD_BLOCK gate enforcement:** currently advisory in `ContractAuthority._check_hard_block` (returns None). Specific path-containment / shape checks live in the managers/orchestrators that touch the relevant resources, lands T2 with `install_orchestrator` and the project_index_manager.
-- **Contract-revision-aware seed:** new T1 question — when contract markdown changes, should `seed_from_contract` produce a new contract record (new version row), or upsert in-place? Currently it upserts. Real revision flow needs versioning + a `supersedes` relation.
-- **Authorities table empty-by-default:** new T1 question — `_actor_authority` falls back to default-by-prefix when no row exists. Need an explicit `register_actor` envelope in T2 to make actor identity first-class.
-- **Per-hunk change records with LLM summaries (DEFERRED — T4+):** `git diff` hunk metadata (file, old/new line ranges, raw diff text) is deterministic and cheap to capture at tranche-close. The *reason* for each hunk is already in the `decision_records` table. Storing hunk↔decision linkage + a 1-sentence Ollama summary per hunk in the `evidence` table would give exact per-line provenance and dramatically compress the context a resuming agent needs. This is the natural implementation of the Bag of Evidence layer (§3.3) for code-change evidence. `git_reader` already exists; `OllamaClient` is already wired. The surface to display hunk summaries belongs in T3's project_map_panel or a future diff_panel. Implement in T4+ alongside the proposal/approval cycle where diffs become first-class.
+Every item below must be mapped in `IMPLEMENTATION_ROADMAP.md` and tracked as an open `kind='todo'` journal entry until resolved or deliberately superseded.
+
+- **Concurrent multi-process behavior** — Target tranche: **T6/T7**. T5 established the local-agent floor and exercised the shared spine across Tk, MCP, and local runtime surfaces, but a longer soak and heavier concurrent stress run are still needed.
+- **MCP transport expansion** — Target horizon: **T9+ / Phase 2 optional**. `stdio` is the current vendable default. HTTP transport is no longer an open MVP decision; it is optional future expansion only if a later tranche justifies it.
+- **Snapshot cadence** — Target tranche: **T7**. Decide whether snapshots happen on tranche close, on demand, or both when building the snapshot orchestrator.
+- **Schema migration test harness** — Target tranche: **T7**. Plan exists; implementation still deferred.
+- **Bag/Shelf overflow hardening** — Target tranche: **T7 / T6.x if split later**. Core STM overflow and shelf derivation are now implemented; remaining work is polish, retrieval ergonomics, and any follow-up adjustments discovered after T6 close.
+- **HARD_BLOCK gate enforcement** — Target tranche: **T7**. `ContractAuthority._check_hard_block` is still advisory; stricter end-to-end enforcement needs a dedicated hardening pass.
+- **Contract-revision-aware seed** — Target tranche: **T7**. When contract markdown changes, `seed_from_contract` should move from upsert-in-place to explicit versioning + `supersedes` semantics.
+- **Authorities table empty-by-default outside session-backed actors** — Target tranche: **T7**. T5 now creates explicit authorities rows for session-backed local/MCP actors, but non-session actors can still fall back to default-by-prefix behavior.
+- **Per-hunk change summaries in evidence** — Target tranche: **T7 / T6.x if split later**. Exact hunk rows now exist with file + old/new line ranges + raw diff text refs. The remaining refinement is linking them more deeply to `decision_records` and optionally generating compact Ollama summaries into the evidence layer for even faster resume.

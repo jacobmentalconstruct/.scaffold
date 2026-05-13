@@ -161,6 +161,10 @@ A complete parking record is the union of these five artifacts. If any one is mi
 1. A `kind='tranche'` journal entry written via the standard envelope chain (`create_journal_entry`), with `evidence_refs` citing a CAS-stored park-notes blob, importance ≥ 8, related_path pointing at `_docs/T_n_PARK_NOTES.md`.
 2. The park-notes file itself (`_docs/T_n_PARK_NOTES.md`) and its blob in `blob_store`.
 3. **All continuity docs updated** (this is the most-drifted step — make it mechanical):
+    - `ONBOARDING.md` — reading order and verification commands reflect current surfaces.
+    - `WE_ARE_HERE_NOW.md` — fast pickup note reflects the latest parked tranche and active horizon.
+    - `NORTHSTARS.md` — satisfied substrate capabilities and active horizons updated.
+    - `DEV_LOG.md` — append-only milestone narrative extended for the tranche.
     - `IMPLEMENTATION_ROADMAP.md` — tranche marked `COMPLETE` with metrics and entry uid.
     - `SOURCE_PROVENANCE.md` — dated entry distinguishing original code vs structural borrows.
     - `TOOLS.md` — row count must equal `tool_registry` count.
@@ -186,6 +190,10 @@ The builder shall maintain a minimal but sufficient project documentation set in
 ### **2. Top-level Documents (at `.scaffold/`)**
 
 - `README.md` — what the sidecar is, how it is dropped into a project, and the invariant that the host project does not import it.
+- `ONBOARDING.md` — the single cold-start reading order for humans and agents.
+- `WE_ARE_HERE_NOW.md` — fast pickup summary for a cold session.
+- `NORTHSTARS.md` — satisfied capabilities vs active horizons.
+- `DEV_LOG.md` — append-only milestone log.
 - `ARCHITECTURE.md` — design truth: spine rule, MVP-5 order, layer model, envelope and event shapes.
 - `SOURCE_PROVENANCE.md` — provenance of any logic re-homed from `.parts/` or other external sources, including this contract revision.
 - `TOOLS.md` — quick-reference index of tools registered under `src/tools/`.

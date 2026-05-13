@@ -31,17 +31,22 @@ from src.core.state import SidecarState
 from src.interfaces import cli_interface, mcp_interface
 from src.lib import logging_setup
 from src.lib.common import detect_sidecar_root, public_path, public_root_labels, resolve_paths
+from src.lib.ui_launcher import launch_monitor
 from src.managers.constraint_manager import ConstraintManager
 from src.managers.evidence_manager import EvidenceManager
 from src.managers.git_state_manager import GitStateManager
 from src.managers.journal_manager import JournalManager
 from src.managers.project_index_manager import ProjectIndexManager
+from src.managers.agent_session_manager import AgentSessionManager
+from src.managers.human_approval_manager import HumanApprovalManager
+from src.managers.memory_manager import MemoryManager
 from src.managers.tool_registry_manager import ToolRegistryManager
 from src.orchestrators.agent_task_orchestrator import AgentTaskOrchestrator
 from src.orchestrators.closeout_orchestrator import CloseoutOrchestrator
 from src.orchestrators.install_orchestrator import InstallOrchestrator
 from src.orchestrators.scan_orchestrator import ScanOrchestrator
 from src.managers.tranche_manager import TrancheManager
+from src.runtime.local_agent_runtime import LocalAgentRuntime
 
 
 def boot(sidecar_root: Path | None = None,
@@ -81,9 +86,13 @@ def boot(sidecar_root: Path | None = None,
     evidence_manager = EvidenceManager(store, blob)
     git_reader = GitReader()
     git_state_manager = GitStateManager(store, git_reader)
+    agent_session_manager = AgentSessionManager(store)
+    human_approval_manager = HumanApprovalManager(store, blob)
+    memory_manager = MemoryManager(store, blob)
     tool_registry_manager = ToolRegistryManager(store, blob, paths.src / "tools")
     file_scanner = FileScanner()
     tranche_manager = TrancheManager(store, blob)
+    local_agent_runtime = LocalAgentRuntime(state)
     install_orch = InstallOrchestrator(store)
     scan_orch = ScanOrchestrator(file_scanner, project_index_manager, blob)
     agent_task_orch = AgentTaskOrchestrator(journal_manager, blob)
@@ -108,12 +117,16 @@ def boot(sidecar_root: Path | None = None,
     state.evidence_manager = evidence_manager
     state.git_state_manager = git_state_manager
     state.tool_registry_manager = tool_registry_manager
+    state.agent_session_manager = agent_session_manager
+    state.human_approval_manager = human_approval_manager
+    state.memory_manager = memory_manager
     state.file_scanner = file_scanner
     state.install_orchestrator = install_orch
     state.scan_orchestrator = scan_orch
     state.agent_task_orchestrator = agent_task_orch
     state.tranche_manager = tranche_manager
     state.closeout_orchestrator = closeout_orch
+    state.local_agent_runtime = local_agent_runtime
     state.router = router
 
     # Seed constraints (idempotent) from the binding contract.
@@ -140,6 +153,9 @@ def boot(sidecar_root: Path | None = None,
     router.register("verify_evidence", evidence_manager.handle_verify, kind="manager")
     router.register("observe_git", git_state_manager.handle_observe, kind="manager")
     router.register("tool_invoked", tool_registry_manager.handle_invoke, kind="manager")
+    router.register("request_authority_elevation", human_approval_manager.handle_request, kind="manager")
+    router.register("approve_authority_request", human_approval_manager.handle_approve, kind="manager")
+    router.register("reject_authority_request", human_approval_manager.handle_reject, kind="manager")
     router.register("accept_task", agent_task_orch.handle_accept_task, kind="orchestrator")
     router.register("complete_task", agent_task_orch.handle_complete_task, kind="orchestrator")
     router.register("declare_tranche", tranche_manager.handle_declare_tranche, kind="manager")
@@ -181,7 +197,7 @@ def main(argv: list[str]) -> int:
         sys.stderr.write(
             "usage: python -m src.app <cli|mcp|ui> [...]\n"
             "  cli <subcommand> [options]   one-shot CLI dispatch\n"
-            "  mcp                          MCP server (stdio)\n"
+            "  mcp [--no-ui]                MCP server (stdio)\n"
             "  ui                           Tk monitoring console\n"
         )
         return 2
@@ -192,6 +208,8 @@ def main(argv: list[str]) -> int:
         return cli_interface.dispatch(state, argv[1:])
     if mode == "mcp":
         state = boot()
+        if "--no-ui" not in argv[1:]:
+            launch_monitor(state.sidecar_root)
         return mcp_interface.serve_stdio(state)
     if mode == "ui":
         from src.ui import main_window

@@ -1,16 +1,19 @@
 """
 FILE: src/interfaces/mcp_interface.py
-ROLE: MCP server (read-only in T2.3). Agent-facing surface.
-WHAT IT DOES: JSON-RPC 2.0 over stdio. Exposes registered tools and
-              projections. Tool calls become envelopes routed through
-              the spine (no bypass of the gate or event log).
+ROLE: MCP server. Agent-facing surface.
+WHAT IT DOES: JSON-RPC 2.0 over stdio. Exposes registered tools,
+              projections, and a direct envelope-submission path.
+              Tool calls and sidecar submissions both route through
+              the same spine (no bypass of the gate or event log).
 
-T2.3 SCOPE:
+T4 SCOPE:
 - initialize
 - tools/list  → from tool_registry_manager
 - tools/call  → dispatches a tool_invoked envelope via Router
 - resources/list  → projection://<name> URIs
 - resources/read  → reads a projection's rows
+- sidecar/submit  → submits non-tool envelopes such as
+                    acknowledge_contract and request_authority_elevation
 
 The handler class (MCPHandler) is testable without stdio. The serve_stdio
 function wraps it in a newline-JSON loop on sys.stdin/sys.stdout.
@@ -81,6 +84,8 @@ class MCPHandler:
             return self._handle_tools_list(params)
         if method == "tools/call":
             return self._handle_tools_call(params)
+        if method == "sidecar/submit":
+            return self._handle_sidecar_submit(params)
         if method == "resources/list":
             return self._handle_resources_list(params)
         if method == "resources/read":
@@ -101,9 +106,9 @@ class MCPHandler:
             "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION,
                            "sidecar_id": self._state.sidecar_id},
             "instructions": (
-                "Read-only sidecar surface. Tools require contract "
-                "acknowledgment by the calling actor (default: agent:mcp). "
-                "Read the toolbox_manifest before invoking tools."
+                "Sidecar surface. First submit acknowledge_contract through "
+                "sidecar/submit, then read projection://agent_bootstrap, "
+                "then use tools/call or sidecar/submit for proposal intents."
             ),
         }
 
@@ -174,6 +179,49 @@ class MCPHandler:
             },
         }
 
+    def _handle_sidecar_submit(self, params: dict) -> dict:
+        operation_intent = params.get("operationIntent") or params.get("operation_intent")
+        if not operation_intent:
+            raise _MCPError(-32602, "sidecar/submit requires operationIntent")
+
+        actor_id = params.get("actorId") or params.get("actor_id") or self._actor_for_session(params)
+        object_type = params.get("objectType") or params.get("object_type") or _default_object_type(operation_intent)
+        payload = params.get("payload")
+        payload_ref = self._state.blob_store.put_json(payload) if payload is not None else ""
+        contract_refs = params.get("contractRefs") or params.get("contract_refs") or []
+        if operation_intent == "acknowledge_contract" and not contract_refs:
+            contract = self._state.current_contract or {}
+            contract_refs = [f"{contract.get('contract_id', '')}:{contract.get('version', '')}"]
+
+        envelope = SidecarEnvelope.new(
+            object_type=object_type,
+            actor_id=actor_id,
+            operation_intent=operation_intent,
+            payload_ref=payload_ref,
+            relation_refs=params.get("relationRefs") or params.get("relation_refs") or [],
+            contract_refs=contract_refs,
+            evidence_refs=params.get("evidenceRefs") or params.get("evidence_refs") or [],
+            source_refs=params.get("sourceRefs") or params.get("source_refs") or [],
+            causation_id=params.get("causationId") or params.get("causation_id") or "",
+            correlation_id=params.get("correlationId") or params.get("correlation_id") or "",
+        )
+        result_env = self._state.router.dispatch(envelope)
+        payload_data = None
+        if result_env.payload_ref:
+            try:
+                payload_data = self._state.blob_store.get_json(result_env.payload_ref)
+            except Exception as e:
+                log.error("could not read submit payload: %s", e)
+
+        return {
+            "accepted": result_env.status in ("accepted", "completed"),
+            "status": result_env.status,
+            "eventId": result_env.event_id,
+            "actorId": result_env.actor_id,
+            "operationIntent": result_env.operation_intent,
+            "payload": payload_data,
+        }
+
     def _handle_resources_list(self, params: dict) -> dict:
         resources = []
         for name in self._state.projections.list():
@@ -213,7 +261,27 @@ class MCPHandler:
         """Resolve the actor id for this MCP session. T2.3: default to agent:mcp."""
         meta = params.get("_meta") or {}
         client_name = meta.get("client_name") or "default"
-        return f"agent:mcp:{client_name}"
+        actor_id = f"agent:mcp:{client_name}"
+        if getattr(self._state, "agent_session_manager", None) is not None:
+            self._state.agent_session_manager.touch(
+                actor_id=actor_id,
+                channel="mcp",
+                client_name=client_name,
+                authority_level=self._state.contract_authority._actor_authority(actor_id),
+                metadata={"transport": "stdio"},
+            )
+        return actor_id
+
+
+def _default_object_type(operation_intent: str) -> str:
+    mapping = {
+        "acknowledge_contract": "contract_ack",
+        "request_authority_elevation": "authority_request",
+        "approve_authority_request": "authority_grant",
+        "reject_authority_request": "authority_grant",
+        "create_journal_entry": "journal_entry",
+    }
+    return mapping.get(operation_intent, "submission")
 
 
 class _MCPError(Exception):
