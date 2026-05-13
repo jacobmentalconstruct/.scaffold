@@ -1,0 +1,113 @@
+{
+  "manifest_version": "1.0.0",
+  "sidecar_name": "scaffold-sidecar",
+  "sidecar_version": "0.1.0",
+  "sidecar_id": "sc_18ae61e3f9a3edcc_44bb8a5d",
+  "generated_at": "2026-05-13T00:46:33.976Z",
+  "sidecar_root_marker": ".scaffold",
+  "host_invariant": "the host project does not import from .scaffold/",
+  "zero_context_entry_protocol": {
+    "step_1": "Read ONBOARDING.md at the sidecar root.",
+    "step_2": "Read this manifest in full.",
+    "step_3": "Read contracts/builder_constraint_contract.md and acknowledge it.",
+    "step_4": "Call read_projection(name='agent_bootstrap') for the live PAST/PRESENT/FUTURE summary.",
+    "step_5": "Begin meaningful work under Observe or Propose authority.",
+    "linked_contract": "contracts/builder_constraint_contract.md",
+    "linked_architecture": "ARCHITECTURE.md",
+    "linked_roadmap": "IMPLEMENTATION_ROADMAP.md",
+    "linked_onboarding": "ONBOARDING.md"
+  },
+  "current_contract": {
+    "contract_id": "builder_constraint",
+    "version": "1.0.0",
+    "text_hash": "f056cca6a40a0aec01c093bf70be5fb43ddf709b6d32677ce91b40ede5acf8d8",
+    "ack_count": 3
+  },
+  "tiers": {
+    "builder_tools": "src/tools/ \u2014 see config/tool_manifest.json for per-tool details",
+    "vendable_packages": [],
+    "vendable_documents": [
+      {
+        "name": "README.md",
+        "purpose": "human-facing introduction"
+      },
+      {
+        "name": "ONBOARDING.md",
+        "purpose": "explicit reading order for a cold agent or human"
+      },
+      {
+        "name": "ARCHITECTURE.md",
+        "purpose": "design truth"
+      },
+      {
+        "name": "IMPLEMENTATION_ROADMAP.md",
+        "purpose": "tranche-by-tranche build plan and current status"
+      },
+      {
+        "name": "TOOLS.md",
+        "purpose": "human-readable tool index"
+      },
+      {
+        "name": "SOURCE_PROVENANCE.md",
+        "purpose": "what was original code vs structurally borrowed"
+      },
+      {
+        "name": "_docs/INCORPORATION_INVENTORY.md",
+        "purpose": "precursor review and triage"
+      }
+    ]
+  },
+  "authority_levels": [
+    "Observe",
+    "Propose",
+    "Sandbox Execute",
+    "Apply",
+    "Export"
+  ],
+  "default_agent_authority": "Propose",
+  "projections": [
+    "agent_bootstrap",
+    "contract_status",
+    "current_sidecar_state",
+    "evidence_bag",
+    "human_dashboard",
+    "journal_timeline",
+    "project_map",
+    "tranche_checklist",
+    "viewport_state"
+  ],
+  "event_streams": [
+    "project",
+    "task",
+    "object",
+    "tool"
+  ],
+  "memory_model": {
+    "ltm": "Everything persistent on disk: journal, logs, projections, project code, sidecar code, contract.",
+    "stm": "Sliding window in agent context (managed by the agent's runtime, not the sidecar).",
+    "bag_of_evidence": "Bridge layer between STM overflow and LTM. Reserved schema; deferred implementation (DP1).",
+    "temporal_directions": "agent_bootstrap projection carries PAST + PRESENT + FUTURE \u2014 see ARCHITECTURE.md \u00a73.6."
+  },
+  "spine_rule": "Interface -> Envelope -> Router -> ContractCheck -> Orchestrator -> Manager -> Event -> derived views. No sideways calls. The envelope is the only currency.",
+  "park_phase_discipline": "Every tranche closes per contract \u00a7D / ARCHITECTURE.md \u00a712.2. Five artifacts required: (a) tranche journal entry, (b) park-notes blob, (c) continuity docs updated, (d) accept_task + complete_task events, (e) close_journal_entry. smoke_test.py enforces drift detection.",
+  "verification_commands": [
+    "python -m src.app cli version",
+    "python -m src.app cli list-projections",
+    "python -m src.app cli tool-list",
+    "python -m src.app cli journal-query --kind tranche",
+    "python smoke_test.py"
+  ],
+  "schema_version": 6,
+  "event_count": 336,
+  "tool_count": 5,
+  "journal_count": 45,
+  "linked_resources": {
+    "tool_manifest": "config/tool_manifest.json",
+    "sidecar_db": "data/sidecar.db",
+    "contract": "contracts/builder_constraint_contract.md",
+    "architecture": "ARCHITECTURE.md",
+    "roadmap": "IMPLEMENTATION_ROADMAP.md",
+    "onboarding": "ONBOARDING.md",
+    "source_provenance": "SOURCE_PROVENANCE.md"
+  }
+}
