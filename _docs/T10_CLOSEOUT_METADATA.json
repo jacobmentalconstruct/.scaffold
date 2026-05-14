@@ -1,0 +1,19 @@
+{
+  "title": "T10 Closeout Metadata Derivation Hardening",
+  "tranche_id": "tranche_18af6e5cedd242c4_4422b20f",
+  "journal_entry_uid": "journal_18af6ec811ddaf94_e67371c3",
+  "journal_created_at": "2026-05-14T12:36:23.406Z",
+  "closed_at": "2026-05-14T12:36:23.407Z",
+  "status": "closed",
+  "park_notes_path": "_docs/T10_PARK_NOTES.md",
+  "park_notes_blob_ref": "f721aa05d143aacd10731389220d16b17e0c0be41d1a434da16bb6fa263206ad",
+  "decisions_count": 1,
+  "files_changed_count": 12,
+  "per_tranche_json_path": "_docs/T10_CLOSEOUT_METADATA.json",
+  "per_tranche_markdown_path": "_docs/T10_CLOSEOUT_METADATA.md",
+  "latest_json_path": "_docs/LATEST_PARKED_TRANCHE.json",
+  "latest_markdown_path": "_docs/LATEST_PARKED_TRANCHE.md",
+  "generated_at": "2026-05-14T12:36:23.407Z",
+  "source": "closeout_orchestrator",
+  "note": "park_notes_blob_ref is the sidecar CAS blob ref, not the Git file SHA for the Markdown park-notes file."
+}

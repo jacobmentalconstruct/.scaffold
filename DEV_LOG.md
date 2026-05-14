@@ -101,3 +101,9 @@ Append-only milestone log for humans and agents onboarding cold.
 - Tightened host-project write hard blocks so installed `.scaffold` cannot write into its own runtime subtree while still allowing disposable sandbox targets.
 - Proved a fresh host loop end to end: install, contract ack, scan, projection/UI hydration, governed proposal, human approval, bounded host mutation, trace/evidence/journal/projection capture, reviewer packet export.
 - Added CLI, projection, Tk, and smoke surfaces for the vendability proof and sealed the old experiment as superseded by this branch.
+
+## 2026-05-14 — T10 Closeout Metadata Derivation Hardening
+
+- Mechanized latest parked tranche closeout identifiers into generated continuity artifacts instead of hand-copying them into prose docs.
+- Added tranche-specific and latest-alias closeout metadata files under `_docs/`, plus CLI surfaces to inspect and backfill them.
+- Hardened smoke so generated closeout metadata must match the latest closed tranche exactly, preventing stale journal ids or CAS refs from lingering in mirror docs.

@@ -2,7 +2,7 @@
 
 ## Snapshot
 
-- Latest parked feature tranche: T9 Installed-Project Proof + Vendability Seal
+- Latest parked tranche: T10 Closeout Metadata Derivation Hardening
 - Current substrate state: contract-bound, Tk-native, MCP-capable, local-agent-capable, runtime-traced, training-capable, installed-project-proof-capable, substrate baseline achieved
 - Active horizon: T10 Post-Baseline Hardening + Optional Expansion
 - Deferred backlog status: normalized into `IMPLEMENTATION_ROADMAP.md` and mirrored as open journal todos
@@ -16,7 +16,9 @@
 - the proof fixture now lives under `workspaces/installed_project_proof/tiny_notes_app/`
 - the branch now formally supersedes the old experiment as the default installable substrate baseline
 - T9 park notes now live at `_docs/T9_PARK_NOTES.md`
-- continuity docs now agree that baseline is achieved and T10 is the next optional hardening horizon
+- T10 sealed the closeout-metadata derivation hardening slice and now acts as the latest parked tranche
+- generated closeout metadata now lives at `_docs/LATEST_PARKED_TRANCHE.json` and `_docs/T10_CLOSEOUT_METADATA.json`
+- continuity docs now treat generated closeout metadata as the authoritative mirror source for latest parked tranche identifiers
 
 ## What to read next
 

@@ -1,6 +1,6 @@
 # IMPLEMENTATION_ROADMAP.md
 
-> **Status:** Living roadmap. T5/T5.1/T6/T6.1/T7/T8/T8.1/T9 are complete; schema v11 installed-project proof state is parked, vendability baseline is achieved, continuity is current, and T10 is the next optional horizon. References Tranche A output at `_docs/INCORPORATION_INVENTORY.md`.
+> **Status:** Living roadmap. T5/T5.1/T6/T6.1/T7/T8/T8.1/T9 are complete; one T10 hardening slice is also complete (`T10 Closeout Metadata Derivation Hardening`), schema v11 installed-project proof state is parked, vendability baseline is achieved, continuity is current, and the broader T10 post-baseline horizon remains open. References Tranche A output at `_docs/INCORPORATION_INVENTORY.md`.
 
 ---
 
@@ -490,7 +490,7 @@ T4 proved the approval loop and handoff doctrine, but it did **not** finish the 
 - linked local-agent run ids: `local_run_20260514T114059490Z`, `local_run_20260514T114102189Z`
 - approval request / grant: `approval_18af6bc2a5d254b0_86ecc546` / `grant_18af6bc2b8e7ea74_0cfa1c16`
 - hunk ref: `hunk_18af6bc347f5fcd8_7698bda5`
-- tranche journal entry: `journal_18af6bc349622448_23e909ec`
+- authoritative closeout metadata: [`_docs/T9_CLOSEOUT_METADATA.json`](_docs/T9_CLOSEOUT_METADATA.json)
 
 **What landed:**
 - schema v11 with `installed_project_proofs`
@@ -514,6 +514,14 @@ T4 proved the approval loop and handoff doctrine, but it did **not** finish the 
 ### **Tranche 10 — Post-Baseline Hardening + Optional Expansion**
 
 **Scope:** Only the remaining trust/perf/expansion items that still matter after the vendability seal. T10 is a post-baseline horizon, not a missing baseline tranche.
+
+**Completed T10 slice:** `T10 Closeout Metadata Derivation Hardening` is parked. It mechanized latest parked tranche metadata into generated closeout files, added CLI inspection/backfill commands, and made smoke assert exact agreement between generated closeout metadata and the latest closed tranche.
+
+**Evidence:**
+- park notes: [`_docs/T10_PARK_NOTES.md`](_docs/T10_PARK_NOTES.md)
+- authoritative closeout metadata: [`_docs/T10_CLOSEOUT_METADATA.json`](_docs/T10_CLOSEOUT_METADATA.json)
+- latest parked tranche metadata alias: [`_docs/LATEST_PARKED_TRANCHE.json`](_docs/LATEST_PARKED_TRANCHE.json)
+- tranche journal entry: `journal_18af6ec811ddaf94_e67371c3`
 
 **Initial candidates:**
 - longer concurrent Tk + MCP + local-agent stress proof

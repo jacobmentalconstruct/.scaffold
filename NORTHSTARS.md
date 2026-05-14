@@ -13,6 +13,7 @@
 - Operator cockpit visibility through `runtime_cockpit`, CLI run-inspection commands, and the Tk local-agent panel.
 - Teaching Sandbox + Training Runway substrate with tracked scenarios, deterministic mocked pass/fail runs, scorecards, reviewer exports, and Tk/CLI/projection visibility.
 - Fresh installed-project vendability proof with a governed host mutation, trace/evidence/journal/projection chain, and cold-team handoff packet.
+- Generated closeout metadata surfaces so latest parked tranche identifiers and CAS refs are derived mechanically instead of mirrored by hand.
 
 ## Active horizon
 

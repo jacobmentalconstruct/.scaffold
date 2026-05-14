@@ -42,6 +42,7 @@ Read in this order. Each builds on the previous.
 11. **`TOOLS.md`** — registered tools index. Source of truth for tool count is the `tool_registry` table; this file is its mirror, regenerated each Park Phase.
 12. **`_docs/`** — supporting docs:
    - `INCORPORATION_INVENTORY.md` — what was reviewed from the precursor at Tranche A.
+   - `LATEST_PARKED_TRANCHE.json` / `.md` — generated authoritative closeout metadata for the latest parked tranche.
    - `T1_CLOSEOUT_NOTES.md` — T1 Park artifact (now SUPERSEDED by its journal entry, retained as code-time mirror).
    - `T2_PARK_NOTES.md` — T2 Park artifact.
    - `T2_AUDIT_DECISION.md` — why Park Phase is now contract-bound + mechanically enforced.

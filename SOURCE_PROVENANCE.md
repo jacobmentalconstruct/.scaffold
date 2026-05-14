@@ -357,8 +357,19 @@ A bundle of structural borrows committed during the planning phase. Full per-ite
   - linked local-agent run ids: `local_run_20260514T114059490Z`, `local_run_20260514T114102189Z`
   - approval request / grant: `approval_18af6bc2a5d254b0_86ecc546` / `grant_18af6bc2b8e7ea74_0cfa1c16`
   - hunk ref: `hunk_18af6bc347f5fcd8_7698bda5`
-  - tranche journal entry: `journal_18af6bc349622448_23e909ec`
+  - authoritative closeout metadata: `_docs/T9_CLOSEOUT_METADATA.json`
 - **Structural borrow / adaptation notes:**
   - the idea of proving the substrate by installing it into a disposable host-like target continues the predecessor experiment’s “teach by doing” instinct
   - the actual installed-proof runner, installed-context boot semantics, projection, UI panel, and smoke path were written fresh on the current spine rather than ported from precursor code
 - **Why this matters:** T9 is the tranche where `.scaffold` stops being only the project-under-construction and becomes the proven substrate that can be installed into other projects and handed to a cold team without chat context.
+
+## 2026-05-14 — T10 Closeout Metadata Derivation Hardening
+
+- **Status:** T10 slice ✓ COMPLETE. This is a post-baseline continuity/process hardening slice, not a new substrate-capability tranche.
+- **Original implementation in this branch:**
+  - `src/orchestrators/closeout_orchestrator.py` now derives and writes generated closeout metadata for the latest parked tranche and for each newly closed tranche
+  - `src/interfaces/cli_interface.py` now exposes closeout-metadata inspection and backfill commands
+  - `smoke_test.py` now verifies exact agreement between generated closeout metadata and the authoritative latest closed tranche state
+  - `_docs/LATEST_PARKED_TRANCHE.json/.md` and `_docs/T10_CLOSEOUT_METADATA.json/.md` now act as generated continuity artifacts rather than hand-maintained mirrors
+- **Structural borrow / adaptation notes:** none from precursor runtime code; this is substrate-native process enforcement built on top of the existing Active Tranche Ledger and Park Phase doctrine.
+- **Why this matters:** T10 closes a real continuity gap discovered after T9, where stale mirrored prose could drift from the authoritative DB/projection state even though Park Phase had otherwise succeeded. Exact latest closeout ids are now derived mechanically instead of copied by hand.

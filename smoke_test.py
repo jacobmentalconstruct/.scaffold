@@ -754,6 +754,36 @@ def main() -> int:
     if not drift_count:
         _ok(f"all {len(tranches)} tranche entries cite valid evidence_refs")
 
+    _section("40.5. DRIFT: generated closeout metadata matches latest parked tranche")
+    latest_closeout_path = sidecar_root / "_docs" / "LATEST_PARKED_TRANCHE.json"
+    if tranches:
+        latest = tranches[0]
+        if latest_closeout_path.is_file():
+            closeout_meta = _json.loads(latest_closeout_path.read_text(encoding="utf-8"))
+            latest_meta = latest.metadata if isinstance(latest.metadata, dict) else _json.loads(latest.metadata or "{}")
+            if closeout_meta.get("journal_entry_uid") == latest.entry_uid:
+                _ok("generated latest closeout metadata points at the latest closed tranche entry")
+            else:
+                failures.append(_fail("generated latest closeout metadata journal_entry_uid does not match latest closed tranche"))
+            if closeout_meta.get("park_notes_blob_ref") == latest_meta.get("park_notes_blob_ref", ""):
+                _ok("generated latest closeout metadata preserves the authoritative park_notes_blob_ref")
+            else:
+                failures.append(_fail("generated latest closeout metadata park_notes_blob_ref does not match tranche metadata"))
+            park_notes_path = sidecar_root / str(closeout_meta.get("park_notes_path", ""))
+            per_tranche_json_path = sidecar_root / str(closeout_meta.get("per_tranche_json_path", ""))
+            if park_notes_path.is_file() and per_tranche_json_path.is_file():
+                _ok("generated closeout metadata files and referenced park notes exist")
+            else:
+                failures.append(_fail("generated closeout metadata references missing park-notes or per-tranche metadata file"))
+        elif installed_mode:
+            _ok("installed context: generated closeout metadata may not exist before the first local park")
+        else:
+            failures.append(_fail("missing _docs/LATEST_PARKED_TRANCHE.json"))
+    elif installed_mode:
+        _ok("installed context: no local parked tranche yet, skipping generated closeout metadata check")
+    else:
+        failures.append(_fail("no tranche entries found when checking generated closeout metadata"))
+
     _section("41. DRIFT: contract §D Park Phase Discipline clause present")
     contract_text = (sidecar_root / "contracts" / "builder_constraint_contract.md").read_text(encoding="utf-8")
     if "Park Phase Discipline" in contract_text and "five artifacts" in contract_text:

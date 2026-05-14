@@ -303,6 +303,7 @@ When a tranche of meaningful work completes, the **Park Phase** produces a struc
     - **`IMPLEMENTATION_ROADMAP.md`** — mark the tranche `✓ COMPLETE` with metrics + evidence hash + the tranche journal entry's uid + the `task_completed` event id.
     - **`SOURCE_PROVENANCE.md`** — append a dated entry distinguishing original code from structurally-borrowed patterns; cite evidence hashes; record the new journal entry uid.
     - **`TOOLS.md`** — regenerate/update so the registered-tools table row count equals `tool_registry` table row count. Any tools added in the tranche get a row here.
+    - **Generated closeout metadata** — `close_tranche` writes `_docs/LATEST_PARKED_TRANCHE.json/.md` plus a tranche-specific `_docs/Tn_CLOSEOUT_METADATA.json/.md` file so exact closeout ids and CAS refs are derived mechanically instead of hand-copied into mirror docs.
     - **`ARCHITECTURE.md §15`** — add a `Resolved at T_n` subsection listing the open questions this tranche resolved. Carry the still-open list forward.
     - **`README.md`** — update the top-level status header if it references a prior tranche. The header must reflect current state.
     - Any other doc with a status banner referencing a prior tranche.
@@ -508,6 +509,12 @@ See [`src/managers/constraint_manager.py`](src/managers/constraint_manager.py) f
 - **Trust-gate hardening on the proof path** — RESOLVED for baseline: installed-mode host writes are now blocked from targeting the sidecar runtime subtree while still permitting the intended bounded host-proof mutation and disposable sandbox targets.
 - **Clean fresh-install bootstrap confidence** — RESOLVED for baseline: schema migration overlap handling now tolerates additive duplicate-column cases uncovered by clean installed copies, so a fresh vendable `.scaffold` can boot cleanly instead of only upgraded development DBs.
 - **Formal supersession** — RESOLVED: T9 is the tranche where this branch becomes the authoritative successor to the old experiment as the default installable substrate baseline.
+
+### Resolved at T10 (2026-05-14)
+
+- **Manual closeout-id mirroring drift** — RESOLVED for latest parked tranche metadata: `close_tranche` now derives and writes `_docs/LATEST_PARKED_TRANCHE.json/.md` plus tranche-specific `_docs/Tn_CLOSEOUT_METADATA.json/.md` files so journal ids and CAS refs come from one generated source instead of hand-copied prose.
+- **Closeout metadata verification gap** — RESOLVED for the latest parked tranche path: smoke now checks generated closeout metadata against the authoritative latest closed tranche state, including journal uid agreement, CAS blob-ref agreement, and generated-file existence.
+- **Latest parked tranche continuity source** — RESOLVED: docs can now point to generated closeout metadata for exact identifiers, reducing agent reasoning load and eliminating one known Park Phase drift mode.
 
 ### Still open (deferred to later tranches)
 

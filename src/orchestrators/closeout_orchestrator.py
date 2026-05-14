@@ -209,6 +209,8 @@ class CloseoutOrchestrator:
         # --- 11. Set continuity docs flag in meta -------------------------
         state.store.set_meta("last_park_phase_at", now_iso())
         state.store.set_meta("last_park_phase_tranche", tranche.title)
+        closeout_metadata = derive_closeout_metadata(state, entry_uid)
+        write_closeout_metadata_files(state, closeout_metadata)
 
         log.info(
             "close_tranche complete: tranche=%s title=%r entry_uid=%s park_notes=%s",
@@ -228,6 +230,7 @@ class CloseoutOrchestrator:
             "notes_filename": notes_filename,
             "ollama_used": ollama_used,
             "ollama_model": ollama_model if ollama_used else None,
+            "closeout_metadata_json_path": closeout_metadata.get("latest_json_path", ""),
         }
         response_ref = self._blob.put_json(response)
         return envelope.with_status("completed").with_payload_ref(response_ref)
@@ -536,3 +539,130 @@ def _make_notes_filename(title: str) -> str:
     # Fall back to sanitised title.
     safe = re.sub(r"[^a-zA-Z0-9]+", "_", title.strip()).upper()
     return f"{safe[:30]}_PARK_NOTES.md"
+
+
+def _make_closeout_metadata_filenames(title: str) -> tuple[str, str]:
+    notes_name = _make_notes_filename(title)
+    stem = notes_name[:-len("_PARK_NOTES.md")] if notes_name.endswith("_PARK_NOTES.md") else notes_name.rsplit(".", 1)[0]
+    return (f"{stem}_CLOSEOUT_METADATA.json", f"{stem}_CLOSEOUT_METADATA.md")
+
+
+def derive_closeout_metadata(state: "SidecarState", journal_entry_uid: str = "") -> dict:
+    """Return authoritative derived closeout metadata for one closed tranche."""
+    if journal_entry_uid:
+        row = state.store.query_one(
+            """
+            SELECT entry_uid, title, status, created_at, metadata_json
+            FROM journal_entries
+            WHERE entry_uid = ? AND kind = 'tranche' AND status = 'closed'
+            LIMIT 1;
+            """,
+            (journal_entry_uid,),
+        )
+    else:
+        row = state.store.query_one(
+            """
+            SELECT entry_uid, title, status, created_at, metadata_json
+            FROM journal_entries
+            WHERE kind = 'tranche' AND status = 'closed'
+            ORDER BY created_at DESC
+            LIMIT 1;
+            """
+        )
+    if not row:
+        raise RuntimeError("No closed tranche journal entry available for closeout metadata derivation.")
+
+    journal_meta = json.loads(row["metadata_json"] or "{}")
+    tranche_id = str(journal_meta.get("tranche_id") or "")
+    parked_row = None
+    if tranche_id:
+        parked_row = state.store.query_one(
+            "SELECT * FROM active_tranche WHERE tranche_id = ? LIMIT 1;",
+            (tranche_id,),
+        )
+    if parked_row is None:
+        parked_row = state.store.query_one(
+            "SELECT * FROM active_tranche WHERE journal_entry_uid = ? LIMIT 1;",
+            (row["entry_uid"],),
+        )
+
+    title = str(row["title"] or "")
+    notes_filename = _make_notes_filename(title)
+    per_json_name, per_md_name = _make_closeout_metadata_filenames(title)
+    closed_at = row["created_at"]
+    decisions_count = int(journal_meta.get("decisions_count", 0) or 0)
+    files_changed_count = int(journal_meta.get("files_changed_count", 0) or 0)
+    park_notes_blob_ref = str(journal_meta.get("park_notes_blob_ref") or "")
+
+    if parked_row:
+        closed_at = parked_row["closed_at"] or closed_at
+        if not park_notes_blob_ref:
+            park_notes_blob_ref = str(parked_row["park_notes_blob_ref"] or "")
+        if not decisions_count:
+            decisions_count = int(parked_row["decisions_count"] or 0)
+        if not files_changed_count:
+            files_changed_count = len(json.loads(parked_row["files_changed_json"] or "[]"))
+
+    return {
+        "title": title,
+        "tranche_id": tranche_id,
+        "journal_entry_uid": row["entry_uid"],
+        "journal_created_at": row["created_at"],
+        "closed_at": closed_at,
+        "status": str(row["status"] or "closed"),
+        "park_notes_path": f"_docs/{notes_filename}",
+        "park_notes_blob_ref": park_notes_blob_ref,
+        "decisions_count": decisions_count,
+        "files_changed_count": files_changed_count,
+        "per_tranche_json_path": f"_docs/{per_json_name}",
+        "per_tranche_markdown_path": f"_docs/{per_md_name}",
+        "latest_json_path": "_docs/LATEST_PARKED_TRANCHE.json",
+        "latest_markdown_path": "_docs/LATEST_PARKED_TRANCHE.md",
+        "generated_at": now_iso(),
+        "source": "closeout_orchestrator",
+        "note": "park_notes_blob_ref is the sidecar CAS blob ref, not the Git file SHA for the Markdown park-notes file.",
+    }
+
+
+def write_closeout_metadata_files(state: "SidecarState", metadata: dict) -> dict:
+    """Write authoritative generated closeout metadata for humans and agents."""
+    sidecar_root = Path(state.sidecar_root)
+    per_json_path = sidecar_root / metadata["per_tranche_json_path"]
+    per_md_path = sidecar_root / metadata["per_tranche_markdown_path"]
+    latest_json_path = sidecar_root / metadata["latest_json_path"]
+    latest_md_path = sidecar_root / metadata["latest_markdown_path"]
+
+    json_text = safe_json_dumps(metadata, indent=2) + "\n"
+    markdown = "\n".join(
+        [
+            f"# Closeout Metadata — {metadata['title']}",
+            "",
+            "> Generated from the authoritative closeout state.",
+            "> Exact ids and refs here are derived, not hand-copied.",
+            "",
+            f"- `tranche_id`: `{metadata['tranche_id']}`",
+            f"- `journal_entry_uid`: `{metadata['journal_entry_uid']}`",
+            f"- `park_notes_path`: `{metadata['park_notes_path']}`",
+            f"- `park_notes_blob_ref`: `{metadata['park_notes_blob_ref']}`",
+            f"- `closed_at`: `{metadata['closed_at']}`",
+            f"- `decisions_count`: {metadata['decisions_count']}",
+            f"- `files_changed_count`: {metadata['files_changed_count']}",
+            f"- `generated_at`: `{metadata['generated_at']}`",
+            "",
+            metadata["note"],
+            "",
+        ]
+    )
+
+    per_json_path.write_text(json_text, encoding="utf-8")
+    per_md_path.write_text(markdown, encoding="utf-8")
+    latest_json_path.write_text(json_text, encoding="utf-8")
+    latest_md_path.write_text(markdown, encoding="utf-8")
+
+    state.store.set_meta("latest_closed_tranche_journal_uid", str(metadata["journal_entry_uid"]))
+    state.store.set_meta("latest_closed_tranche_title", str(metadata["title"]))
+    state.store.set_meta("latest_park_notes_blob_ref", str(metadata["park_notes_blob_ref"]))
+    state.store.set_meta("latest_park_notes_path", str(metadata["park_notes_path"]))
+    state.store.set_meta("latest_closeout_metadata_json_path", str(metadata["latest_json_path"]))
+    state.store.set_meta("latest_closeout_metadata_markdown_path", str(metadata["latest_markdown_path"]))
+    return metadata

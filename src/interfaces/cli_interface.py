@@ -17,6 +17,10 @@ from src.core.envelope import SidecarEnvelope
 from src.lib.common import public_root_labels, safe_json_dumps
 from src.lib.logging_setup import get_logger
 from src.lib.ui_launcher import launch_monitor
+from src.orchestrators.closeout_orchestrator import (
+    derive_closeout_metadata,
+    write_closeout_metadata_files,
+)
 
 
 if TYPE_CHECKING:
@@ -230,6 +234,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p_ips.add_argument("--proof-run-id", default="", help="Proof run id.")
     p_ipe = sub.add_parser("installed-proof-export", help="Export the installed-project proof handoff packet.")
     p_ipe.add_argument("--proof-run-id", default="", help="Proof run id.")
+
+    p_cms = sub.add_parser("closeout-metadata-show", help="Show derived closeout metadata for the latest or selected closed tranche.")
+    p_cms.add_argument("--journal-entry-uid", default="", help="Closed tranche journal entry uid.")
+    p_cmsync = sub.add_parser("closeout-metadata-sync", help="Write generated closeout metadata files for the latest or selected closed tranche.")
+    p_cmsync.add_argument("--journal-entry-uid", default="", help="Closed tranche journal entry uid.")
 
     # ---- tranche ledger (T2.5) ----------------------------------------
     p_td = sub.add_parser("tranche-declare", help="Declare a new active tranche.")
@@ -1023,6 +1032,17 @@ def _cmd_installed_proof_export(state, args) -> int:
     return 0 if result.get("status") == "ok" else 1
 
 
+def _cmd_closeout_metadata_show(state, args) -> int:
+    _print_json(derive_closeout_metadata(state, args.journal_entry_uid or ""))
+    return 0
+
+
+def _cmd_closeout_metadata_sync(state, args) -> int:
+    metadata = derive_closeout_metadata(state, args.journal_entry_uid or "")
+    _print_json(write_closeout_metadata_files(state, metadata))
+    return 0
+
+
 def _cmd_tranche_declare(state, args) -> int:
     request = {
         "title": args.title,
@@ -1306,6 +1326,8 @@ _COMMANDS = {
     "installed-proof-verify": _cmd_installed_proof_verify,
     "installed-proof-show": _cmd_installed_proof_show,
     "installed-proof-export": _cmd_installed_proof_export,
+    "closeout-metadata-show": _cmd_closeout_metadata_show,
+    "closeout-metadata-sync": _cmd_closeout_metadata_sync,
     # T2.5 Active Tranche Ledger
     "tranche-declare": _cmd_tranche_declare,
     "tranche-status": _cmd_tranche_status,
