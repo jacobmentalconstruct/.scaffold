@@ -51,22 +51,22 @@ FILE_METADATA = {
 
 def run(arguments: dict, state) -> dict:
     if not arguments.get("confirm", False):
-        return _error(arguments, "text writes require confirm=true")
+        return _error(arguments, "text writes require confirm=true", state=state)
 
     target_domain = str(arguments.get("target_domain", "workspace"))
     root = _resolve_root(state, target_domain, bool(arguments.get("allow_host_project_write", False)))
     if root is None:
-        return _error(arguments, "host-project writes require allow_host_project_write=true")
+        return _error(arguments, "host-project writes require allow_host_project_write=true", state=state)
 
     path, error = resolve_bounded_path(root, str(arguments.get("path", "")), label="path")
     if error:
-        return _error(arguments, error)
+        return _error(arguments, error, state=state)
     assert path is not None
 
     protected_paths = [str(item) for item in (arguments.get("protected_paths") or [])]
     protection = protected_path_error(root, path, protected_paths, label="path")
     if protection:
-        return _error(arguments, protection, recovery_class="control_file_tamper")
+        return _error(arguments, protection, recovery_class="control_file_tamper", state=state)
 
     action = str(arguments.get("action", "create"))
     raw_content = arguments.get("content", arguments.get("body", ""))
@@ -76,23 +76,23 @@ def run(arguments: dict, state) -> dict:
     exists = path.exists()
 
     if exists and path.is_dir():
-        return _error(arguments, f"target is a directory: {safe_relative(path, root)}")
+        return _error(arguments, f"target is a directory: {safe_relative(path, root)}", state=state)
     if action == "create" and exists and not overwrite:
-        return _error(arguments, "target exists; set overwrite=true or use append")
+        return _error(arguments, "target exists; set overwrite=true or use append", state=state)
     if action == "overwrite" and not exists:
-        return _error(arguments, "overwrite target does not exist")
+        return _error(arguments, "overwrite target does not exist", state=state)
     if action == "overwrite" and not overwrite:
-        return _error(arguments, "overwrite requires overwrite=true")
+        return _error(arguments, "overwrite requires overwrite=true", state=state)
     if action == "append" and not exists:
-        return _error(arguments, "append target does not exist")
+        return _error(arguments, "append target does not exist", state=state)
     if not path.parent.exists() and not create_dirs:
-        return _error(arguments, "parent directory does not exist; set create_dirs=true")
+        return _error(arguments, "parent directory does not exist; set create_dirs=true", state=state)
 
     final_content = content
     if action == "append" and exists:
         current_text, _, read_error = read_text_bounded(path, max(path.stat().st_size + len(content.encode("utf-8")) + 32, 1))
         if read_error:
-            return _error(arguments, read_error)
+            return _error(arguments, read_error, state=state)
         final_content = f"{current_text}{content}"
 
     validation = None
@@ -100,11 +100,11 @@ def run(arguments: dict, state) -> dict:
     if exists and path.is_file():
         before_text, _, read_error = read_text_bounded(path, max(path.stat().st_size + 32, 1))
         if read_error:
-            return _error(arguments, read_error)
+            return _error(arguments, read_error, state=state)
     if bool(arguments.get("validate_after_write", False)):
         validation = validate_text(final_content, file_type=str(arguments.get("file_type", "")), path=path)
         if not validation["valid"]:
-            return _error(arguments, f"validation failed: {validation['errors']}")
+            return _error(arguments, f"validation failed: {validation['errors']}", state=state)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     if action == "append":
@@ -147,7 +147,9 @@ def _resolve_root(state, target_domain: str, allow_host_project_write: bool) -> 
     return None
 
 
-def _error(arguments: dict, message: str, recovery_class: str = "tool_schema_error") -> dict:
+def _error(arguments: dict, message: str, recovery_class: str = "tool_schema_error", *, state=None) -> dict:
+    if state is not None:
+        _record_trace_failure(state, arguments, recovery_class)
     return {
         "status": "error",
         "tool": FILE_METADATA["tool_name"],
@@ -168,7 +170,7 @@ def _record_memory_provenance(state, *, target_domain: str, root: Path, path: Pa
     if target_domain == "workspace":
         public = f"workspaces/{public}"
     try:
-        memory_manager.record_change_hunks(
+        hunks = memory_manager.record_change_hunks(
             actor_id=actor_id,
             path=public,
             before_text=before_text,
@@ -178,7 +180,52 @@ def _record_memory_provenance(state, *, target_domain: str, root: Path, path: Pa
             source_event_id=str(tool_context.get("object_id") or ""),
             summary_prefix=f"Bounded write to {public}",
         )
+        _record_trace_touch(
+            state,
+            path=public,
+            touch_type="written",
+            status="applied",
+            linked_hunk_ids=[hunk.hunk_id for hunk in hunks],
+        )
         if session_id:
             memory_manager.rebuild_shelf(session_id)
+    except Exception:
+        return
+
+
+def _record_trace_failure(state, arguments: dict, recovery_class: str) -> None:
+    _record_trace_touch(
+        state,
+        path=str(arguments.get("path", "")),
+        touch_type="failed_write",
+        status="failed",
+        linked_hunk_ids=[],
+        metadata={"recovery_class": recovery_class},
+    )
+
+
+def _record_trace_touch(state, *, path: str, touch_type: str, status: str, linked_hunk_ids: list[str], metadata: dict | None = None) -> None:
+    run_trace = getattr(state, "run_trace_manager", None)
+    run_context = getattr(state, "active_run_context", {}) or {}
+    tool_context = getattr(state, "active_tool_context", {}) or {}
+    run_id = str(run_context.get("run_id") or "")
+    if not run_trace or not run_id or not path:
+        return
+    try:
+        linked_hunk_id = linked_hunk_ids[0] if linked_hunk_ids else None
+        run_trace.record_touched_path(
+            run_id=run_id,
+            round_id=str(run_context.get("round_id") or "") or None,
+            path=path,
+            touch_type=touch_type,
+            status=status,
+            linked_hunk_id=linked_hunk_id,
+            linked_tool_invocation_id=str(tool_context.get("invocation_id") or "") or None,
+            metadata={
+                "tool_name": FILE_METADATA["tool_name"],
+                "linked_hunk_ids": linked_hunk_ids,
+                **(metadata or {}),
+            },
+        )
     except Exception:
         return

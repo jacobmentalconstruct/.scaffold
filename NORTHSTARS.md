@@ -9,16 +9,17 @@
 - Workspace-first bounded mutation path with explicit human approval and grant issuance.
 - Cold-start continuity set at repo root: onboarding, fast pickup, development log, roadmap, provenance, tools, architecture, and contract.
 - Local Ollama sidecar agent runtime inside the same spine, with session visibility, approval-aware bounded writes, and Tk operator controls.
+- Durable runtime trace for local-agent runs, rounds, runtime events, touched paths, grounded claims, recovery classes, and explicit retry lineage.
+- Operator cockpit visibility through `runtime_cockpit`, CLI run-inspection commands, and the Tk local-agent panel.
 
 ## Active horizon
 
-T7 is the active horizon: the next step is to make the local sidecar agent more observable and recoverable with run traces, recovery classes, retry guidance, and a fuller operator cockpit.
+T8 is the active horizon: the next step is to rebuild the Teaching Sandbox + Training Runway on top of the now-traced local agent so deterministic scenarios, scorecards, reviewer exports, and evidence-linked evaluation become part of the substrate.
 
 The deferred backlog is now explicitly tranche-mapped in `IMPLEMENTATION_ROADMAP.md` and mirrored into open journal todos so carry-forward work is visible in the UI, projections, and handoff flow.
 
 ## What still separates this branch from superseding the old experiment
 
-- run trace and recovery classification
 - teaching sandbox and training runway
 - fresh installed-project proof that this branch can replace the older system end to end
 

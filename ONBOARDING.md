@@ -147,7 +147,7 @@ When designing anything that persists, ask: STM, Bag, or LTM?
 
 ## How to resume the previous session's work
 
-1. Read `IMPLEMENTATION_ROADMAP.md` — find the next tranche **not** marked `✓ COMPLETE` (now T7).
+1. Read `IMPLEMENTATION_ROADMAP.md` — find the next tranche **not** marked `✓ COMPLETE` (now T8).
 2. Read the latest `_docs/T_n_PARK_NOTES.md` — it captures the previous tranche's closeout in detail.
 3. Run `python -m src.app cli projection agent_bootstrap` — gives you PAST + PRESENT + FUTURE in one read.
 4. Run `python smoke_test.py` — verifies the state is clean. If it's not, **fix Park Phase drift first**.

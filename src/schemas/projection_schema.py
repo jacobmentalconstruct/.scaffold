@@ -27,6 +27,7 @@ PROJECTION_NAMES = (
     "tranche_checklist",
     "viewport_state",
     "handoff",
+    "runtime_cockpit",
 )
 
 
@@ -68,6 +69,7 @@ PROJECTION_COLUMNS: dict[str, tuple[str, ...]] = {
         "next_planned_steps_json TEXT",
         "active_goals_json TEXT",
         "open_questions_json TEXT",
+        "runtime_summary_json TEXT",
         # META
         "source_plan_path TEXT",
         "source_plan_hash TEXT",
@@ -157,6 +159,19 @@ PROJECTION_COLUMNS: dict[str, tuple[str, ...]] = {
         "verification_commands_json TEXT",
         "last_refreshed_at TEXT",
     ),
+    "runtime_cockpit": (
+        "id INTEGER PRIMARY KEY CHECK (id = 1)",
+        "active_run_json TEXT",
+        "recent_runs_json TEXT",
+        "recent_failures_json TEXT",
+        "latest_recovery_summary_json TEXT",
+        "run_heartbeat_json TEXT",
+        "last_runtime_event_json TEXT",
+        "touched_path_counts_json TEXT",
+        "grounding_counts_json TEXT",
+        "selected_run_ids_json TEXT",
+        "last_refreshed_at TEXT",
+    ),
 }
 
 
@@ -173,11 +188,11 @@ INTENT_AFFECTS_PROJECTIONS: dict[str, tuple[str, ...]] = {
     "observe_git": ("human_dashboard", "viewport_state"),
     "record_observed_file": ("project_map",),
 
-    "tool_invoked": ("current_sidecar_state", "viewport_state"),
-    "tool_result": ("current_sidecar_state", "viewport_state"),
-    "request_authority_elevation": ("human_dashboard", "contract_status", "viewport_state", "handoff"),
-    "approve_authority_request": ("human_dashboard", "contract_status", "viewport_state", "handoff"),
-    "reject_authority_request": ("human_dashboard", "contract_status", "viewport_state", "handoff"),
+    "tool_invoked": ("current_sidecar_state", "viewport_state", "runtime_cockpit"),
+    "tool_result": ("current_sidecar_state", "viewport_state", "runtime_cockpit"),
+    "request_authority_elevation": ("human_dashboard", "contract_status", "viewport_state", "handoff", "runtime_cockpit"),
+    "approve_authority_request": ("human_dashboard", "contract_status", "viewport_state", "handoff", "runtime_cockpit"),
+    "reject_authority_request": ("human_dashboard", "contract_status", "viewport_state", "handoff", "runtime_cockpit"),
 
     "create_journal_entry": ("journal_timeline", "human_dashboard", "agent_bootstrap", "viewport_state"),
     "update_journal_entry": ("journal_timeline", "viewport_state"),
@@ -202,10 +217,10 @@ INTENT_AFFECTS_PROJECTIONS: dict[str, tuple[str, ...]] = {
     "record_decision": ("tranche_checklist", "agent_bootstrap", "viewport_state"),
     "smoke_pass":      ("tranche_checklist", "viewport_state"),
     "close_tranche":   (
-        "tranche_checklist", "human_dashboard", "agent_bootstrap", "journal_timeline", "viewport_state", "handoff",
+        "tranche_checklist", "human_dashboard", "agent_bootstrap", "journal_timeline", "viewport_state", "handoff", "runtime_cockpit",
     ),
-    "declare_tranche": ("tranche_checklist", "human_dashboard", "agent_bootstrap", "viewport_state", "handoff"),
-    "record_decision": ("tranche_checklist", "agent_bootstrap", "viewport_state", "handoff"),
+    "declare_tranche": ("tranche_checklist", "human_dashboard", "agent_bootstrap", "viewport_state", "handoff", "runtime_cockpit"),
+    "record_decision": ("tranche_checklist", "agent_bootstrap", "viewport_state", "handoff", "runtime_cockpit"),
 }
 
 

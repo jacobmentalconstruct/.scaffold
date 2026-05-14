@@ -1,6 +1,6 @@
 # IMPLEMENTATION_ROADMAP.md
 
-> **Status:** Living roadmap. T5/T5.1/T6/T6.1 are complete; schema v8 memory layering is parked, continuity alignment is sealed, and T7 is next. References Tranche A output at `_docs/INCORPORATION_INVENTORY.md`.
+> **Status:** Living roadmap. T5/T5.1/T6/T6.1/T7 are complete; schema v9 runtime tracing is parked, continuity is current, and T8 is next. References Tranche A output at `_docs/INCORPORATION_INVENTORY.md`.
 
 ---
 
@@ -409,24 +409,37 @@ T4 proved the approval loop and handoff doctrine, but it did **not** finish the 
 - smoke passes after the continuity alignment itself
 - T7 remains the clear next tranche
 
-### **Tranche 7 — Run Trace, Recovery, and Operator Cockpit**
+### **Tranche 7 — Run Trace, Recovery, and Operator Cockpit** — ✓ COMPLETE (2026-05-14)
 
-**Scope:** Bring back the old runtime hardening layer so the local agent is observable and recoverable.
+**Status:** COMPLETE. Smoke test PASS with dedicated T7 runtime sections. Local-agent execution is now a durable temporal object rather than an opaque final-response process.
 
-**Target files / surfaces:**
-- run-trace persistence for local-agent runs, rounds, approvals, touched paths, and linked evidence/journal refs
-- recovery classification for model transport, malformed tool calls, schema errors, tool failures, approval stops, and max-round exhaustion
-- Tk operator-cockpit uplift for run inspection, recovery hints, retry controls, and session heartbeat visibility
-- projection and handoff updates so runtime trace state is visible without leaving the sidecar shell
+**Evidence:**
+- park notes: [`_docs/T7_PARK_NOTES.md`](_docs/T7_PARK_NOTES.md)
+- park-notes blob hash: `1b8bd02c97e4aaa8a7b2f6739a3475cf3674b40b347937030e14ddc40b8d7955`
+- tranche journal entry: `journal_18af45da8a7bfa1c_5b4be0dd`
 
-**Completion criteria:**
+**What landed:**
+- schema v9: `local_agent_runs`, `local_agent_run_rounds`, `local_agent_runtime_events`, `local_agent_run_touched_paths`, `local_agent_run_links`, `local_agent_claim_grounding`
+- `run_trace_manager` and `recovery_manager` for durable runtime persistence and normalized `recovery_class` handling
+- local-agent runtime instrumentation for run start/finish/failure, rounds, tool activity, approval waits, retry lineage, and grounded final summaries
+- `runtime_cockpit` projection plus `agent_bootstrap` / `viewport_state` runtime visibility
+- CLI inspection and retry commands: `local-agent-run-list`, `local-agent-run-show`, `local-agent-run-events`, `local-agent-recovery-summary`, `local-agent-run-retry`
+- Tk local-agent panel uplift into a real operator cockpit with run history, selected-run detail, recovery hints, and retry controls
+
+**Completion criteria met:**
 - Successful and failed local runs produce inspectable trace records.
 - Recovery classes and retry guidance surface in the Tk operator shell.
-- Final claims can be grounded in touched paths, evidence, or journal references.
+- Final claims can be grounded in touched paths, evidence, journal refs, or explicit `no_mutation_trace` records.
 
 ### **Tranche 8 — Teaching Sandbox + Training Runway**
 
 **Scope:** Reincorporate deterministic training/evaluation infrastructure as part of the substrate, not as a separate experimental branch.
+
+**Target files / surfaces:**
+- teaching-sandbox runtime harness with deterministic scenario definitions owned by the sidecar
+- scorecard / reviewer export surfaces linked to T7 run traces, evidence refs, and tranche journal state
+- training-runway docs for scenario review, pass/fail taxonomy, and operator protocol
+- projection and UI additions needed to inspect sandbox runs without leaving the sidecar shell
 
 **Completion criteria:**
 - A minimal scenario set runs through the local agent deterministically.
@@ -452,18 +465,18 @@ Deferred work must not live only in chat or in scattered prose. Each item below 
 
 | Deferred item | Target tranche / horizon | Why it is deferred / what it unlocks |
 |---|---|---|
-| Generic actor bootstrap hardening beyond session-backed rows | T7 | T5 created explicit authorities rows for session-backed actors; finish removing default-by-prefix dependence outside that path. |
-| Concurrent Tk + MCP + local-agent workload verification | T7 | T5 proved the floor; longer soak and heavier concurrency stress still need a dedicated hardening pass. |
+| Generic actor bootstrap hardening beyond session-backed rows | T8 | T5 created explicit authorities rows for session-backed actors; finish removing default-by-prefix dependence outside that path. |
+| Concurrent Tk + MCP + local-agent workload verification | T8 / T9 | T5 and T7 proved the floor; longer soak and heavier concurrency stress still need a dedicated hardening pass. |
 | `src/components/patch_applier.py` | T6 | Pairs with diff proposals so approved text changes can apply as structured hunks. |
-| Per-hunk line provenance + diff evidence linkage refinements | T7 / T6.x if split later | Exact hunk rows exist after T6; remaining work is deeper decision/evidence linkage and any optional summaries. |
+| Per-hunk line provenance + diff evidence linkage refinements | T8 | Exact hunk rows exist after T6; remaining work is deeper decision/evidence linkage and any optional summaries. |
 | `src/components/test_runner.py` | T6 | Enables bounded verification runs as part of local-agent workflows. |
 | `src/orchestrators/scaffold_orchestrator.py` | T6 | Deepens guarded mutation beyond the T4 workspace-first file-write floor. |
-| Contract revision-aware seed / contract versioning | T7 | Replaces in-place contract upsert with explicit supersession semantics. |
+| Contract revision-aware seed / contract versioning | T8 / T9 | Replaces in-place contract upsert with explicit supersession semantics. |
 | Constraint decomposition tooling + `src/managers/ontology_manager.py` | T6+ | Helpful for richer reasoning and object typing, but not critical before the first local-agent loop. |
-| Run trace spine + `recovery_class` consumption | T7 | Makes local-agent runs inspectable, classifiable, and retryable. |
-| HARD_BLOCK enforcement hardening | T7 | Move from advisory gate checks to stricter end-to-end enforcement where appropriate. |
-| Snapshot cadence decision + snapshot orchestrator adoption | T7 | Needed once runtime trace/recovery and audit expectations rise. |
-| Schema migration test harness | T7 | Raises confidence as the schema and runtime surfaces become more stateful. |
+| Run trace spine + `recovery_class` consumption | ✓ COMPLETE at T7 | Local-agent runs are now inspectable, classifiable, grounded, and explicitly retryable. |
+| HARD_BLOCK enforcement hardening | T8 / T9 | Move from advisory gate checks to stricter end-to-end enforcement where appropriate. |
+| Snapshot cadence decision + snapshot orchestrator adoption | T8 / T9 | Needed once runtime trace/recovery and audit expectations rise. |
+| Schema migration test harness | T8 | Raises confidence as the schema and runtime surfaces become more stateful. |
 | Teaching Sandbox + Training Runway | T8 | Rebuild deterministic training/eval on top of the cleaned-up substrate. |
 | Remaining precursor tools beyond the current registry | T6+ on a case basis | Only adopt tools that materially strengthen the substrate; do not bulk-port the precursor. |
 | Optional HTTP MCP transport evaluation | T9+ / Phase 2 | `stdio` is the default vendable path; HTTP remains optional future expansion only if justified. |
@@ -477,7 +490,7 @@ Deferred work must not live only in chat or in scattered prose. Each item below 
 
 (Per inventory §1.1, item 1.8 — adopted as a lightweight pattern.)
 
-### Active scope (T1–T6 complete; T7 next)
+### Active scope (T1–T7 complete; T8 next)
 - Spine integrity (envelope, router, contract gate, event log, graph, projections).
 - LTM operational (journal, projections, project_index).
 - Read-only MCP for external agents.

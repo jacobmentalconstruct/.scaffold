@@ -24,6 +24,7 @@ class LocalAgentPanel(ttk.Frame):
         self.columnconfigure(1, weight=1)
         self.rowconfigure(1, weight=1)
         self.rowconfigure(3, weight=1)
+        self.rowconfigure(5, weight=1)
 
         self._actor_var = tk.StringVar(value="agent:local:ollama")
         self._base_url_var = tk.StringVar(value="http://localhost:11434")
@@ -57,6 +58,8 @@ class LocalAgentPanel(ttk.Frame):
         self._run_btn.pack(fill="x", pady=(6, 0))
         self._stop_btn = ttk.Button(button_row, text="Request Stop", command=self._request_stop)
         self._stop_btn.pack(fill="x", pady=(6, 0))
+        self._retry_btn = ttk.Button(button_row, text="Retry Selected Run", command=self._retry_selected_run)
+        self._retry_btn.pack(fill="x", pady=(6, 0))
 
         ttk.Label(controls, textvariable=self._status_var, wraplength=240).pack(anchor="w", pady=(8, 0))
 
@@ -75,8 +78,25 @@ class LocalAgentPanel(ttk.Frame):
         self._status_text.grid(row=3, column=0, sticky="nsew", padx=(0, 10))
         self._result_text = ScrolledText(self, wrap=tk.WORD, height=12)
         self._result_text.grid(row=3, column=1, sticky="nsew")
+        ttk.Label(self, text="Run History").grid(row=4, column=0, sticky="w", pady=(10, 6))
+        ttk.Label(self, text="Run Detail").grid(row=4, column=1, sticky="w", pady=(10, 6))
+        self._runs_tree = ttk.Treeview(
+            self,
+            columns=("status", "run_id", "recovery"),
+            show="headings",
+            height=10,
+        )
+        for col, label, width in (("status", "Status", 100), ("run_id", "Run", 240), ("recovery", "Recovery", 160)):
+            self._runs_tree.heading(col, text=label)
+            self._runs_tree.column(col, width=width, anchor=tk.W)
+        self._runs_tree.grid(row=5, column=0, sticky="nsew", padx=(0, 10))
+        self._runs_tree.bind("<<TreeviewSelect>>", self._on_run_select)
+        self._run_detail_text = ScrolledText(self, wrap=tk.WORD, height=10)
+        self._run_detail_text.grid(row=5, column=1, sticky="nsew")
         for widget in (self._status_text, self._result_text):
             widget.configure(state=tk.DISABLED)
+        self._run_detail_text.configure(state=tk.DISABLED)
+        self._selected_run_id = ""
 
     def refresh(self, data: dict) -> None:
         present = (data.get("viewport") or {}).get("present", {})
@@ -92,6 +112,7 @@ class LocalAgentPanel(ttk.Frame):
             "pending_approvals": present.get("pending_approvals", 0),
             "current_agent": present.get("current_agent", {}),
             "memory": present.get("memory", {}),
+            "runtime": data.get("runtime_cockpit", {}),
         }
         self._set_text(self._status_text, json.dumps(status_payload, indent=2))
         if runtime_status:
@@ -100,6 +121,18 @@ class LocalAgentPanel(ttk.Frame):
                 f"{runtime_status.get('model', '')} | "
                 f"{runtime_status.get('last_seen_at', '')}"
             )
+        recent_runs = (data.get("runtime_cockpit") or {}).get("recent_runs", [])
+        self._runs_tree.delete(*self._runs_tree.get_children())
+        for run in recent_runs:
+            run_id = str(run.get("run_id", ""))
+            self._runs_tree.insert("", tk.END, iid=run_id, values=(run.get("status", ""), run_id, run.get("recovery_class", "")))
+        if self._selected_run_id and self._runs_tree.exists(self._selected_run_id):
+            self._runs_tree.selection_set(self._selected_run_id)
+        elif recent_runs:
+            self._selected_run_id = str(recent_runs[0].get("run_id", ""))
+            if self._selected_run_id and self._runs_tree.exists(self._selected_run_id):
+                self._runs_tree.selection_set(self._selected_run_id)
+        self._refresh_run_detail(recent_runs)
 
     def _refresh_models(self) -> None:
         self._run_background(
@@ -144,6 +177,16 @@ class LocalAgentPanel(ttk.Frame):
         except Exception:
             pass
 
+    def _retry_selected_run(self) -> None:
+        if not self._selected_run_id:
+            self._status_var.set("Select a run to retry.")
+            return
+        self._run_background(
+            "Retrying selected run...",
+            lambda: self._state.local_agent_runtime.retry_run(self._selected_run_id),
+            self._after_result,
+        )
+
     def _safe_rounds(self) -> int:
         try:
             return max(1, min(int(self._rounds_var.get().strip()), 8))
@@ -183,14 +226,70 @@ class LocalAgentPanel(ttk.Frame):
             self._status_var.set(payload.get("status", "ok"))
         self._set_text(self._result_text, json.dumps(payload, indent=2))
         try:
+            self._state.projections.refresh("runtime_cockpit")
             self._state.projections.refresh("viewport_state")
         except Exception:
             pass
 
     def _set_buttons(self, state: str) -> None:
-        for button in (self._models_btn, self._preflight_btn, self._run_btn):
+        for button in (self._models_btn, self._preflight_btn, self._run_btn, self._retry_btn):
             button.configure(state=state)
         self._stop_btn.configure(state="normal")
+
+    def _on_run_select(self, _event=None) -> None:
+        selection = self._runs_tree.selection()
+        self._selected_run_id = selection[0] if selection else ""
+        self._refresh_run_detail()
+
+    def _refresh_run_detail(self, recent_runs: list[dict] | None = None) -> None:
+        if not self._selected_run_id:
+            self._set_text(self._run_detail_text, json.dumps({}, indent=2))
+            return
+        run_detail = {}
+        summary_row = {}
+        if recent_runs:
+            for run in recent_runs:
+                if str(run.get("run_id", "")) == self._selected_run_id:
+                    summary_row = run
+                    break
+        try:
+            run_row = self._state.run_trace_manager.get_run(self._selected_run_id)
+            if run_row is not None:
+                run_detail = {
+                    "run": {
+                        "run_id": run_row.run_id,
+                        "session_id": run_row.session_id,
+                        "actor_id": run_row.actor_id,
+                        "model": run_row.model,
+                        "status": run_row.status,
+                        "authority_level": run_row.authority_level,
+                        "task_summary": run_row.task_summary,
+                        "started_at": run_row.started_at,
+                        "ended_at": run_row.ended_at,
+                        "final_summary": run_row.final_summary,
+                        "final_message": run_row.final_message,
+                        "recovery_class": run_row.recovery_class,
+                        "retryable": run_row.retryable,
+                        "operator_hint": run_row.operator_hint,
+                        "retried_from_run_id": run_row.retried_from_run_id,
+                        "last_round_index": run_row.last_round_index,
+                        "last_runtime_event_type": run_row.last_runtime_event_type,
+                        "journal_entry_uid": run_row.journal_entry_uid,
+                        "approval_request_id": run_row.approval_request_id,
+                        "approval_grant_id": run_row.approval_grant_id,
+                        "config_snapshot": run_row.config_snapshot,
+                        "metadata": run_row.metadata,
+                    },
+                    "summary_row": summary_row,
+                    "rounds": self._state.run_trace_manager.get_run_rounds(self._selected_run_id),
+                    "events": self._state.run_trace_manager.get_run_events(self._selected_run_id, limit=50),
+                    "touched_paths": self._state.run_trace_manager.get_run_touched_paths(self._selected_run_id),
+                    "links": self._state.run_trace_manager.get_run_links(self._selected_run_id),
+                    "grounding": self._state.run_trace_manager.get_run_grounding(self._selected_run_id),
+                }
+        except Exception:
+            run_detail = {}
+        self._set_text(self._run_detail_text, json.dumps(run_detail, indent=2))
 
     @staticmethod
     def _set_text(widget: ScrolledText, text: str) -> None:

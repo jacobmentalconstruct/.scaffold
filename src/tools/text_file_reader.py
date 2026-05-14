@@ -91,6 +91,8 @@ def run(arguments: dict, state) -> dict:
         e = int(line_end) if line_end else len(lines)
         selected_text = "".join(lines[s:e])
 
+    _record_trace_touch(state, rel_path, "read", "observed")
+
     return {
         "status": "ok",
         "tool": FILE_METADATA["tool_name"],
@@ -113,3 +115,24 @@ def _err(arguments: dict, message: str) -> dict:
         "input": arguments,
         "result": {"error": message},
     }
+
+
+def _record_trace_touch(state, path: str, touch_type: str, status: str) -> None:
+    run_trace = getattr(state, "run_trace_manager", None)
+    run_context = getattr(state, "active_run_context", {}) or {}
+    tool_context = getattr(state, "active_tool_context", {}) or {}
+    run_id = str(run_context.get("run_id") or "")
+    if not run_trace or not run_id:
+        return
+    try:
+        run_trace.record_touched_path(
+            run_id=run_id,
+            round_id=str(run_context.get("round_id") or "") or None,
+            path=str(path),
+            touch_type=touch_type,
+            status=status,
+            linked_tool_invocation_id=str(tool_context.get("invocation_id") or "") or None,
+            metadata={"tool_name": FILE_METADATA["tool_name"]},
+        )
+    except Exception:
+        return

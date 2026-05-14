@@ -1285,7 +1285,7 @@ def main() -> int:
         _ok("WE_ARE_HERE_NOW.md names the latest parked tranche")
     else:
         failures.append(_fail("WE_ARE_HERE_NOW.md does not name the latest parked tranche"))
-    if "Active horizon:" in where_now_text and "T7" in northstars_text:
+    if "Active horizon:" in where_now_text and "Active horizon" in northstars_text:
         _ok("handoff docs identify the next active horizon")
     else:
         failures.append(_fail("handoff docs do not identify the next active horizon"))
@@ -1308,6 +1308,12 @@ def main() -> int:
     except Exception as e:
         traceback.print_exc()
         failures.append(_fail(f"T5 local agent status failed: {e}"))
+
+    local_actor = ""
+    local_rel = ""
+    local_request_id = ""
+    local_session_id = ""
+    second_run: dict = {}
 
     _section("66. T5: local agent can request approval through the spine")
     try:
@@ -1567,6 +1573,269 @@ def main() -> int:
         except Exception as e:
             traceback.print_exc()
             failures.append(_fail(f"T6 memory summary failed: {e}"))
+
+    _section("73. T7: schema v9 applied — runtime trace tables exist")
+    if state.store.schema_version() >= 9:
+        _ok(f"schema_version={state.store.schema_version()}")
+    else:
+        failures.append(_fail(f"schema_version={state.store.schema_version()} (expected >= 9)"))
+    for table_name in (
+        "local_agent_runs",
+        "local_agent_run_rounds",
+        "local_agent_runtime_events",
+        "local_agent_run_touched_paths",
+        "local_agent_run_links",
+        "local_agent_claim_grounding",
+    ):
+        row = state.store.query_one(
+            """
+            SELECT name FROM sqlite_master
+            WHERE type = 'table' AND name = ?;
+            """,
+            (table_name,),
+        )
+        if row and row["name"] == table_name:
+            _ok(f"{table_name} table exists")
+        else:
+            failures.append(_fail(f"{table_name} table missing"))
+
+    _section("74. T7: successful, failed, stopped, and retried runs are traced")
+    t7_completed_run: dict = {}
+    t7_failed_run: dict = {}
+    t7_retry_run: dict = {}
+    t7_stopped_run: dict = {}
+    try:
+        from src.lib.common import gen_id
+
+        success_actor = f"agent:local:smoke_t7_success_{gen_id('')[-6:]}"
+        failure_actor = f"agent:local:smoke_t7_failure_{gen_id('')[-6:]}"
+        stop_actor = f"agent:local:smoke_t7_stop_{gen_id('')[-6:]}"
+        t7_completed_run = state.local_agent_runtime.run(
+            prompt="Inspect and complete without mutation for T7 smoke.",
+            actor_id=success_actor,
+            model="qwen3.5:9b",
+            max_rounds=2,
+            mock_responses=[
+                safe_json_dumps(
+                    {
+                        "summary": "Completed without mutation after inspection.",
+                        "action": {"type": "final", "message": "Completed without changing files."},
+                    }
+                )
+            ],
+        )
+        if t7_completed_run.get("status") == "completed":
+            _ok(f"successful traced run completed: {t7_completed_run.get('run_id')}")
+        else:
+            failures.append(_fail(f"T7 completed run unexpected: {t7_completed_run}"))
+
+        t7_failed_run = state.local_agent_runtime.run(
+            prompt="Fail deterministically for T7 recovery classification.",
+            actor_id=failure_actor,
+            model="qwen3.5:9b",
+            max_rounds=2,
+            mock_failure="ollama_unreachable",
+        )
+        if t7_failed_run.get("status") == "failed" and t7_failed_run.get("recovery_class") == "model_transport_error":
+            _ok(f"failed traced run classified correctly: {t7_failed_run.get('run_id')}")
+        else:
+            failures.append(_fail(f"T7 failed run unexpected: {t7_failed_run}"))
+
+        t7_retry_run = state.local_agent_runtime.retry_run(str(t7_failed_run.get("run_id", "")))
+        if (
+            t7_retry_run.get("status") == "failed"
+            and t7_retry_run.get("retried_from_run_id") == t7_failed_run.get("run_id")
+        ):
+            _ok(f"retry lineage created a fresh run: {t7_retry_run.get('run_id')}")
+        else:
+            failures.append(_fail(f"T7 retry run unexpected: {t7_retry_run}"))
+
+        stop_result = state.local_agent_runtime.request_stop(actor_id=stop_actor)
+        if stop_result.get("stop_requested"):
+            _ok("T7 stop request recorded")
+        else:
+            failures.append(_fail(f"T7 stop request failed: {stop_result}"))
+        t7_stopped_run = state.local_agent_runtime.run(
+            prompt="This run should stop before taking action for T7 smoke.",
+            actor_id=stop_actor,
+            model="qwen3.5:9b",
+            max_rounds=2,
+            mock_responses=[
+                safe_json_dumps(
+                    {
+                        "summary": "Would have read bootstrap.",
+                        "action": {
+                            "type": "tool_call",
+                            "tool_name": "read_projection",
+                            "arguments": {"name": "agent_bootstrap"},
+                        },
+                    }
+                )
+            ],
+        )
+        if t7_stopped_run.get("status") == "stopped":
+            _ok(f"stopped traced run recorded: {t7_stopped_run.get('run_id')}")
+        else:
+            failures.append(_fail(f"T7 stopped run unexpected: {t7_stopped_run}"))
+    except Exception as e:
+        traceback.print_exc()
+        failures.append(_fail(f"T7 traced run scenarios failed: {e}"))
+
+    _section("75. T7: trace records preserve grounding, recovery, and retry snapshot")
+    try:
+        completed_run_id = str(t7_completed_run.get("run_id", ""))
+        failed_run_id = str(t7_failed_run.get("run_id", ""))
+        retry_run_id = str(t7_retry_run.get("run_id", ""))
+        stopped_run_id = str(t7_stopped_run.get("run_id", ""))
+        if completed_run_id:
+            completed_trace = state.run_trace_manager.get_run(completed_run_id)
+            completed_grounding = state.run_trace_manager.get_run_grounding(completed_run_id)
+            if completed_trace and completed_trace.config_snapshot.get("prompt"):
+                _ok("successful run stored config_snapshot_json")
+            else:
+                failures.append(_fail("successful traced run missing config snapshot"))
+            if any(item.get("grounding_kind") == "no_mutation_trace" for item in completed_grounding):
+                _ok("successful no-mutation run grounded its final claim")
+            else:
+                failures.append(_fail(f"successful traced run missing no_mutation_trace grounding: {completed_grounding}"))
+        if failed_run_id:
+            failed_trace = state.run_trace_manager.get_run(failed_run_id)
+            failed_events = state.run_trace_manager.get_run_events(failed_run_id, limit=20)
+            if failed_trace and failed_trace.recovery_class == "model_transport_error":
+                _ok("failed traced run stored normalized recovery_class")
+            else:
+                failures.append(_fail(f"failed traced run recovery mismatch: {failed_trace}"))
+            if any(event.get("event_type") == "run_failed" for event in failed_events):
+                _ok("failed traced run emitted run_failed runtime event")
+            else:
+                failures.append(_fail(f"failed traced run missing run_failed event: {failed_events}"))
+        if retry_run_id:
+            retry_trace = state.run_trace_manager.get_run(retry_run_id)
+            if (
+                retry_trace
+                and retry_trace.retried_from_run_id == failed_run_id
+                and retry_trace.config_snapshot.get("mock_failure") == "ollama_unreachable"
+            ):
+                _ok("retry run preserved lineage and replay snapshot")
+            else:
+                failures.append(_fail(f"retry traced run missing lineage/snapshot: {retry_trace}"))
+        if stopped_run_id:
+            stopped_trace = state.run_trace_manager.get_run(stopped_run_id)
+            if stopped_trace and stopped_trace.status == "stopped":
+                _ok("stopped run persisted stopped status")
+            else:
+                failures.append(_fail(f"stopped traced run missing stopped status: {stopped_trace}"))
+    except Exception as e:
+        traceback.print_exc()
+        failures.append(_fail(f"T7 trace detail verification failed: {e}"))
+
+    _section("76. T7: projection surfaces expose runtime cockpit state")
+    try:
+        runtime_cockpit = state.projections.refresh("runtime_cockpit")
+        runtime_row = _first_projection_row(runtime_cockpit.rows)
+        recent_runs = json.loads(runtime_row.get("recent_runs_json") or "[]")
+        recent_failures = json.loads(runtime_row.get("recent_failures_json") or "[]")
+        grounding_counts = json.loads(runtime_row.get("grounding_counts_json") or "{}")
+        if recent_runs:
+            _ok(f"runtime_cockpit.recent_runs_json has {len(recent_runs)} run(s)")
+        else:
+            failures.append(_fail("runtime_cockpit.recent_runs_json is empty"))
+        if recent_failures:
+            _ok(f"runtime_cockpit.recent_failures_json has {len(recent_failures)} failure(s)")
+        else:
+            failures.append(_fail("runtime_cockpit.recent_failures_json is empty"))
+        if grounding_counts:
+            _ok("runtime_cockpit exposes grounding counts")
+        else:
+            failures.append(_fail("runtime_cockpit.grounding_counts_json is empty"))
+
+        bootstrap = state.projections.refresh("agent_bootstrap")
+        bootstrap_row = _first_projection_row(bootstrap.rows)
+        runtime_summary = json.loads(bootstrap_row.get("runtime_summary_json") or "{}")
+        if runtime_summary.get("recent_runs"):
+            _ok("agent_bootstrap.runtime_summary_json exposes recent runs")
+        else:
+            failures.append(_fail("agent_bootstrap.runtime_summary_json is empty"))
+
+        viewport = state.projections.refresh("viewport_state")
+        viewport_row = _first_projection_row(viewport.rows)
+        present = json.loads(viewport_row.get("present_json") or "{}")
+        past = json.loads(viewport_row.get("past_json") or "{}")
+        present_runtime = present.get("runtime") or {}
+        if present_runtime.get("recent_runs") or present_runtime.get("active_run"):
+            _ok("viewport_state.present.runtime exposes runtime summary")
+        else:
+            failures.append(_fail(f"viewport_state.present.runtime missing runtime summary: {present_runtime}"))
+        if past.get("recent_runs"):
+            _ok("viewport_state.past.recent_runs exposes recent traced runs")
+        else:
+            failures.append(_fail("viewport_state.past.recent_runs is empty"))
+    except Exception as e:
+        traceback.print_exc()
+        failures.append(_fail(f"T7 runtime projection surfaces failed: {e}"))
+
+    _section("77. T7: approved local-agent write records touched paths and hunk grounding")
+    try:
+        traced_write_run_id = str(second_run.get("run_id", ""))
+        if traced_write_run_id:
+            touched_paths = state.run_trace_manager.get_run_touched_paths(traced_write_run_id)
+            grounding = state.run_trace_manager.get_run_grounding(traced_write_run_id)
+            if touched_paths:
+                _ok(f"traced write run recorded {len(touched_paths)} touched path(s)")
+            else:
+                failures.append(_fail("traced write run has no touched_path records"))
+            if any(str(item.get("linked_hunk_id") or "").strip() for item in touched_paths):
+                _ok("traced write run touched-path records link to change hunks")
+            else:
+                failures.append(_fail(f"traced write run missing linked_hunk_id values: {touched_paths}"))
+            if any(item.get("grounding_kind") == "touched_path" for item in grounding):
+                _ok("traced write run grounded its final claim in touched paths")
+            else:
+                failures.append(_fail(f"traced write run missing touched_path grounding: {grounding}"))
+        else:
+            failures.append(_fail("T5 proof write run_id unavailable for T7 touched-path verification"))
+    except Exception as e:
+        traceback.print_exc()
+        failures.append(_fail(f"T7 touched-path verification failed: {e}"))
+
+    _section("78. T7: Tk local-agent cockpit hydrates from runtime_cockpit")
+    try:
+        import tkinter as _tk
+        from src.ui.local_agent_panel import LocalAgentPanel
+
+        runtime_cockpit = state.projections.refresh("runtime_cockpit")
+        runtime_row = _first_projection_row(runtime_cockpit.rows)
+        viewport = state.projections.refresh("viewport_state")
+        viewport_row = _first_projection_row(viewport.rows)
+        bundle = {
+            "viewport": {
+                "present": json.loads(viewport_row.get("present_json") or "{}"),
+                "past": json.loads(viewport_row.get("past_json") or "{}"),
+            },
+            "runtime_cockpit": {
+                "active_run": json.loads(runtime_row.get("active_run_json") or "{}"),
+                "recent_runs": json.loads(runtime_row.get("recent_runs_json") or "[]"),
+                "recent_failures": json.loads(runtime_row.get("recent_failures_json") or "[]"),
+                "latest_recovery_summary": json.loads(runtime_row.get("latest_recovery_summary_json") or "{}"),
+                "run_heartbeat": json.loads(runtime_row.get("run_heartbeat_json") or "{}"),
+                "last_runtime_event": json.loads(runtime_row.get("last_runtime_event_json") or "{}"),
+                "touched_path_counts": json.loads(runtime_row.get("touched_path_counts_json") or "{}"),
+                "grounding_counts": json.loads(runtime_row.get("grounding_counts_json") or "{}"),
+                "selected_run_ids": json.loads(runtime_row.get("selected_run_ids_json") or "[]"),
+            },
+        }
+        root = _tk.Tk()
+        root.withdraw()
+        panel = LocalAgentPanel(root, state)
+        panel.refresh(bundle)
+        root.update_idletasks()
+        root.update()
+        root.destroy()
+        _ok(f"LocalAgentPanel hydrated from runtime_cockpit: {type(panel).__name__}")
+    except Exception as e:
+        import traceback as _tb
+        _tb.print_exc()
+        failures.append(_fail(f"T7 Tk cockpit hydration failed: {e}"))
 
     _section("RESULT")
     if failures:

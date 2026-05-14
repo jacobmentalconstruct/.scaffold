@@ -221,6 +221,10 @@ class ToolRegistryManager:
             "object_id": envelope.object_id,
             "operation_intent": envelope.operation_intent,
             "tool_name": tool_name,
+            "invocation_id": invocation_id,
+            "run_id": (state.active_run_context or {}).get("run_id", ""),
+            "round_id": (state.active_run_context or {}).get("round_id", ""),
+            "session_id": (state.active_run_context or {}).get("session_id", ""),
         }
         try:
             result = tool.run_fn(arguments, state)

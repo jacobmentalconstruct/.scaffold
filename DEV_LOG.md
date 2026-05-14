@@ -70,3 +70,11 @@ Append-only milestone log for humans and agents onboarding cold.
 - Reconciled the continuity docs after T6 close so README, onboarding, roadmap, architecture, provenance, and fast-pickup notes all agree on the parked state.
 - Tightened smoke expectations to follow the real tranche horizon instead of stale hard-coded assumptions.
 - Left the branch in a clean handoff state with T7 clearly named as the next active horizon.
+
+## 2026-05-14 — T7 Run Trace, Recovery, and Operator Cockpit
+
+- Added schema v9 for `local_agent_runs`, `local_agent_run_rounds`, `local_agent_runtime_events`, `local_agent_run_touched_paths`, `local_agent_run_links`, and `local_agent_claim_grounding`.
+- Instrumented the local Ollama runtime so runs, rounds, approvals, tool activity, failures, retry lineage, and final claim grounding are durable instead of implicit.
+- Added normalized recovery classification plus CLI/Tk inspection surfaces (`runtime_cockpit`, `local-agent-run-list`, `local-agent-run-show`, `local-agent-run-events`, `local-agent-recovery-summary`, `local-agent-run-retry`).
+- Extended the Tk local-agent panel into a real operator cockpit with run history, selected-run detail, recovery hints, and retry actions.
+- Upgraded smoke to prove successful, failed, stopped, retried, grounded, projected, and Tk-hydrated T7 paths end to end.

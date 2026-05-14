@@ -294,3 +294,23 @@ A bundle of structural borrows committed during the planning phase. Full per-ite
   - advanced continuity docs from “T6 active” to “T6/T6.1 parked, T7 next”
   - aligned roadmap + architecture wording with the parked T6 memory-layer state
   - updated smoke expectations so tranche-history and next-horizon checks track the real parked state instead of stale hard-coded assumptions
+
+### 2026-05-14 — Tranche 7 (Run Trace, Recovery, and Operator Cockpit) — ORIGINAL CODE
+
+- **Status:** T7 ✓ COMPLETE. Local-agent execution is now persisted as a first-class temporal object. Park notes: `_docs/T7_PARK_NOTES.md`; blob hash `1b8bd02c97e4aaa8a7b2f6739a3475cf3674b40b347937030e14ddc40b8d7955`; tranche journal entry `journal_18af45da8a7bfa1c_5b4be0dd`.
+- **Type:** Original implementation in this branch. The old precursor’s runtime-observability ideas influenced the target shape, but the persistence model, projection layer, recovery taxonomy, CLI surfaces, and Tk cockpit uplift were rebuilt on the current spine.
+- **New or materially landed surfaces:**
+  - `src/managers/run_trace_manager.py`
+  - `src/managers/recovery_manager.py`
+  - schema v9 additions in `src/components/sqlite_store.py`
+  - runtime trace integration in `src/runtime/local_agent_runtime.py`
+  - `runtime_cockpit` projection plus CLI inspection commands and Tk local-agent panel uplift
+- **Key hardening done in this tranche:**
+  - captured run/round/runtime-event/touched-path/link/claim-grounding state in SQLite
+  - normalized recovery classes and operator guidance instead of ad hoc failure strings
+  - persisted retry/replay snapshots and explicit `retried_from_run_id` lineage
+  - grounded final no-mutation and mutation-bearing completions in trace-linked artifacts
+  - extended smoke to prove successful, failed, stopped, retried, grounded, projected, and Tk-hydrated runtime paths
+- **Borrow/adaptation notes:**
+  - precursor ideas informed the notion of a richer operator runtime plane
+  - the T7 implementation remains substrate-native and manager-owned, not a port of the old runtime telemetry layer

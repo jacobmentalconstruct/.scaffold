@@ -40,6 +40,8 @@ from src.managers.project_index_manager import ProjectIndexManager
 from src.managers.agent_session_manager import AgentSessionManager
 from src.managers.human_approval_manager import HumanApprovalManager
 from src.managers.memory_manager import MemoryManager
+from src.managers.recovery_manager import RecoveryManager
+from src.managers.run_trace_manager import RunTraceManager
 from src.managers.tool_registry_manager import ToolRegistryManager
 from src.orchestrators.agent_task_orchestrator import AgentTaskOrchestrator
 from src.orchestrators.closeout_orchestrator import CloseoutOrchestrator
@@ -89,6 +91,8 @@ def boot(sidecar_root: Path | None = None,
     agent_session_manager = AgentSessionManager(store)
     human_approval_manager = HumanApprovalManager(store, blob)
     memory_manager = MemoryManager(store, blob)
+    recovery_manager = RecoveryManager()
+    run_trace_manager = RunTraceManager(store, recovery_manager)
     tool_registry_manager = ToolRegistryManager(store, blob, paths.src / "tools")
     file_scanner = FileScanner()
     tranche_manager = TrancheManager(store, blob)
@@ -120,6 +124,8 @@ def boot(sidecar_root: Path | None = None,
     state.agent_session_manager = agent_session_manager
     state.human_approval_manager = human_approval_manager
     state.memory_manager = memory_manager
+    state.recovery_manager = recovery_manager
+    state.run_trace_manager = run_trace_manager
     state.file_scanner = file_scanner
     state.install_orchestrator = install_orch
     state.scan_orchestrator = scan_orch

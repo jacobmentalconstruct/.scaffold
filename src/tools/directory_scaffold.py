@@ -61,6 +61,7 @@ def run(arguments: dict, state) -> dict:
     ]
     blocked = [plan for plan in plans if plan["status"] == "blocked"]
     if blocked and not dry_run:
+        _record_trace_entries(state, blocked, target_domain, status="failed")
         recovery_class = "control_file_tamper" if any(plan.get("recovery_class") == "control_file_tamper" for plan in blocked) else "tool_schema_error"
         return _error(arguments, f"blocked scaffold entries: {blocked}", recovery_class=recovery_class)
 
@@ -80,6 +81,10 @@ def run(arguments: dict, state) -> dict:
                     target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(str(entry.get("content", "")), encoding="utf-8", newline="")
             applied.append(plan)
+    if blocked:
+        _record_trace_entries(state, blocked, target_domain, status="rejected")
+    if applied:
+        _record_trace_entries(state, applied, target_domain, status="applied")
 
     return {
         "status": "ok",
@@ -161,3 +166,33 @@ def _error(arguments: dict, message: str, recovery_class: str = "tool_schema_err
         "input": arguments,
         "result": {"error": message, "recovery_class": recovery_class},
     }
+
+
+def _record_trace_entries(state, plans: list[dict], target_domain: str, *, status: str) -> None:
+    run_trace = getattr(state, "run_trace_manager", None)
+    run_context = getattr(state, "active_run_context", {}) or {}
+    tool_context = getattr(state, "active_tool_context", {}) or {}
+    run_id = str(run_context.get("run_id") or "")
+    if not run_trace or not run_id:
+        return
+    for plan in plans:
+        touch_type = "created" if plan.get("type") == "directory" else "written"
+        if status == "rejected":
+            touch_type = "rejected"
+        if status == "failed":
+            touch_type = "failed_write"
+        path = str(plan.get("path", ""))
+        if target_domain == "workspace" and path and not path.startswith("workspaces/"):
+            path = f"workspaces/{path}"
+        try:
+            run_trace.record_touched_path(
+                run_id=run_id,
+                round_id=str(run_context.get("round_id") or "") or None,
+                path=path,
+                touch_type=touch_type,
+                status=status,
+                linked_tool_invocation_id=str(tool_context.get("invocation_id") or "") or None,
+                metadata={"tool_name": FILE_METADATA["tool_name"], "action": plan.get("action", "")},
+            )
+        except Exception:
+            continue

@@ -2,21 +2,20 @@
 
 ## Snapshot
 
-- Latest parked feature tranche: T6 STM + Bag of Evidence + Evidence Shelf
-- Continuity follow-up tranche: T6.1 Post-Park Continuity Alignment
-- Current substrate state: contract-bound, Tk-native, MCP-capable, local-agent-capable, workspace-first bounded mutation loop working
-- Active horizon: T7 Run Trace, Recovery, and Operator Cockpit
+- Latest parked feature tranche: T7 Run Trace, Recovery, and Operator Cockpit
+- Current substrate state: contract-bound, Tk-native, MCP-capable, local-agent-capable, runtime-traced, workspace-first bounded mutation loop working
+- Active horizon: T8 Teaching Sandbox + Training Runway
 - Deferred backlog status: normalized into `IMPLEMENTATION_ROADMAP.md` and mirrored as open journal todos
 
 ## What just landed
 
-- T6 is now parked and schema v8 is live
-- local-agent STM now persists in SQLite-backed session memory rows
-- older local-agent working context overflows into a Bag of Evidence instead of disappearing with the window
-- an Evidence Shelf is now exposed through `agent_bootstrap` and `viewport_state`
-- bounded text writes now persist per-hunk line provenance (`path`, old/new line ranges, raw diff text)
-- T6 park notes now live at `_docs/T6_PARK_NOTES.md`
-- T6.1 sealed the continuity wording so the roadmap, onboarding flow, architecture, and handoff docs all agree that T7 is the next horizon
+- T7 is now parked and schema v9 is live
+- local-agent runs, rounds, runtime events, touched paths, artifact links, and claim grounding now persist in the SQLite spine
+- retry lineage now reuses a captured run snapshot instead of rebuilding state ad hoc
+- `runtime_cockpit` is now a real projection and is surfaced in `agent_bootstrap`, `viewport_state`, CLI inspection commands, and the Tk local-agent panel
+- final no-mutation and mutation-bearing success summaries are now grounded in trace-linked artifacts instead of being treated as opaque completion text
+- T7 park notes now live at `_docs/T7_PARK_NOTES.md`
+- continuity docs now agree that T8 is the next horizon
 
 ## What to read next
 
@@ -35,15 +34,17 @@ python -m src.app cli version
 python smoke_test.py
 python -m src.app cli projection handoff
 python -m src.app cli projection agent_bootstrap
+python -m src.app cli projection runtime_cockpit
 python -m src.app cli journal-query --kind todo --status open
 python -m src.app cli approval-list --all
 python -m src.app cli local-agent-status
-python -m src.app cli local-agent-preflight --actor "agent:local:ollama" --model "qwen3.5:9b"
+python -m src.app cli local-agent-run-list
+python -m src.app cli local-agent-recovery-summary
 python -m src.app ui
 ```
 
 ## Immediate next job
 
-T7 now owns the next substantive hardening pass: run traces, recovery classes, retry guidance, and a fuller operator cockpit over the local sidecar agent.
+T8 now owns the next substantive expansion pass: rebuild the Teaching Sandbox + Training Runway on top of the traced local-agent substrate so deterministic scenarios, scorecards, and reviewer exports become part of the same sidecar.
 
 The deferred backlog is no longer just prose in architecture notes: query `journal-query --kind todo --status open` to see the tranche-owned carry-forward list.

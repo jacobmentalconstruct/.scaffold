@@ -533,6 +533,127 @@ _T6_DDL: tuple[str, ...] = (
 )
 
 
+# ----------------------------------------------------------------------------
+# Migration v9 — T7: Run Trace, Recovery, and Operator Cockpit
+# ----------------------------------------------------------------------------
+
+_T7_DDL: tuple[str, ...] = (
+    """
+    CREATE TABLE IF NOT EXISTS local_agent_runs (
+        run_id TEXT PRIMARY KEY,
+        session_id TEXT,
+        actor_id TEXT NOT NULL,
+        model TEXT NOT NULL,
+        status TEXT NOT NULL,
+        authority_level TEXT NOT NULL DEFAULT 'Propose',
+        task_summary TEXT NOT NULL DEFAULT '',
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        final_summary TEXT NOT NULL DEFAULT '',
+        final_message TEXT NOT NULL DEFAULT '',
+        recovery_class TEXT NOT NULL DEFAULT '',
+        retryable INTEGER NOT NULL DEFAULT 0,
+        operator_hint TEXT NOT NULL DEFAULT '',
+        retried_from_run_id TEXT,
+        last_round_index INTEGER NOT NULL DEFAULT 0,
+        last_runtime_event_type TEXT NOT NULL DEFAULT '',
+        journal_entry_uid TEXT,
+        approval_request_id TEXT,
+        approval_grant_id TEXT,
+        config_snapshot_json TEXT NOT NULL DEFAULT '{}',
+        metadata_json TEXT NOT NULL DEFAULT '{}'
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_local_agent_runs_started ON local_agent_runs(started_at DESC);",
+    "CREATE INDEX IF NOT EXISTS idx_local_agent_runs_status ON local_agent_runs(status, started_at DESC);",
+    "CREATE INDEX IF NOT EXISTS idx_local_agent_runs_session ON local_agent_runs(session_id, started_at DESC);",
+    """
+    CREATE TABLE IF NOT EXISTS local_agent_run_rounds (
+        round_id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        round_index INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        input_summary TEXT NOT NULL DEFAULT '',
+        output_summary TEXT NOT NULL DEFAULT '',
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        recovery_class TEXT NOT NULL DEFAULT '',
+        metadata_json TEXT NOT NULL DEFAULT '{}'
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_local_agent_rounds_run ON local_agent_run_rounds(run_id, round_index);",
+    """
+    CREATE TABLE IF NOT EXISTS local_agent_runtime_events (
+        runtime_event_id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        round_id TEXT,
+        event_type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        summary TEXT NOT NULL DEFAULT '',
+        recovery_class TEXT NOT NULL DEFAULT '',
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        linked_event_id TEXT,
+        linked_tool_invocation_id TEXT,
+        linked_approval_request_id TEXT,
+        linked_approval_grant_id TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '{}'
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_local_agent_runtime_events_run ON local_agent_runtime_events(run_id, started_at);",
+    """
+    CREATE TABLE IF NOT EXISTS local_agent_run_touched_paths (
+        touch_id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        round_id TEXT,
+        path TEXT NOT NULL,
+        touch_type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        linked_hunk_id TEXT,
+        linked_evidence_id TEXT,
+        linked_tool_invocation_id TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_local_agent_touch_run ON local_agent_run_touched_paths(run_id, created_at);",
+    "CREATE INDEX IF NOT EXISTS idx_local_agent_touch_path ON local_agent_run_touched_paths(path, created_at);",
+    """
+    CREATE TABLE IF NOT EXISTS local_agent_run_links (
+        link_id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        round_id TEXT,
+        link_kind TEXT NOT NULL,
+        link_ref TEXT NOT NULL,
+        relation TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}'
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_local_agent_links_run ON local_agent_run_links(run_id, created_at);",
+    """
+    CREATE TABLE IF NOT EXISTS local_agent_claim_grounding (
+        claim_grounding_id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        claim_id TEXT NOT NULL,
+        claim_text TEXT NOT NULL DEFAULT '',
+        grounding_kind TEXT NOT NULL,
+        grounding_ref TEXT NOT NULL,
+        grounding_role TEXT NOT NULL DEFAULT '',
+        round_id TEXT,
+        runtime_event_id TEXT,
+        created_at TEXT NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}'
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_local_agent_claim_grounding_run ON local_agent_claim_grounding(run_id, created_at);",
+    """
+    ALTER TABLE proj_agent_bootstrap
+    ADD COLUMN runtime_summary_json TEXT;
+    """,
+)
+
+
 # Migration registry: version → (description, list of statements).
 # Migrations run in version order, idempotent.
 _MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
@@ -544,6 +665,7 @@ _MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
     (6, "T3 Tk monitoring UI — viewport_state projection table", ()),
     (7, "T4 Approval loop + handoff doctrine uplift", _T4_DDL),
     (8, "T6 STM + Bag of Evidence + Evidence Shelf", _T6_DDL),
+    (9, "T7 Run Trace, Recovery, and Operator Cockpit", _T7_DDL),
 )
 
 

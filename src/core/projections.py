@@ -61,6 +61,7 @@ class ProjectionManager:
         self._builders["tranche_checklist"] = self._build_tranche_checklist
         self._builders["viewport_state"] = self._build_viewport_state
         self._builders["handoff"] = self._build_handoff
+        self._builders["runtime_cockpit"] = self._build_runtime_cockpit
         # Stub builders for other projections (just stamp the timestamp).
         for name in PROJECTION_NAMES:
             if name not in self._builders:
@@ -566,6 +567,27 @@ class ProjectionManager:
             "shelf_count": memory_summary.get("shelf_count", 0),
             "change_hunk_count": len(memory_summary.get("recent_change_hunks", [])),
         }
+        runtime_summary = (
+            self._state.run_trace_manager.summary(limit=8)
+            if getattr(self._state, "run_trace_manager", None)
+            else {
+                "active_run": {},
+                "recent_runs": [],
+                "recent_failures": [],
+                "latest_recovery_summary": {},
+                "run_heartbeat": {},
+                "last_runtime_event": {},
+                "touched_path_counts": {},
+                "grounding_counts": {},
+                "selected_run_ids": [],
+            }
+        )
+        self._state.runtime_state = {
+            "active_run_id": (runtime_summary.get("active_run") or {}).get("run_id", ""),
+            "active_status": (runtime_summary.get("active_run") or {}).get("status", ""),
+            "recent_run_count": len(runtime_summary.get("recent_runs", [])),
+            "recent_failure_count": len(runtime_summary.get("recent_failures", [])),
+        }
 
         # ---------- FUTURE (parse IMPLEMENTATION_ROADMAP.md) -----------------
         sidecar_root = _Path(self._state.sidecar_root)
@@ -599,8 +621,8 @@ class ProjectionManager:
                 stm_json, bag_json, evidence_shelf_json,
                 current_tranche_scope_json, next_planned_steps_json,
                 active_goals_json, open_questions_json,
-                source_plan_path, source_plan_hash, last_refreshed_at
-            ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                runtime_summary_json, source_plan_path, source_plan_hash, last_refreshed_at
+            ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """,
             (
                 safe_json_dumps(recent_events),
@@ -618,6 +640,7 @@ class ProjectionManager:
                 safe_json_dumps(next_planned_steps),
                 safe_json_dumps(active_goals),
                 safe_json_dumps(open_questions),
+                safe_json_dumps(runtime_summary),
                 "IMPLEMENTATION_ROADMAP.md",
                 source_plan_hash,
                 ts,
@@ -777,6 +800,27 @@ class ProjectionManager:
             "shelf_count": memory_summary.get("shelf_count", 0),
             "change_hunk_count": len(memory_summary.get("recent_change_hunks", [])),
         }
+        runtime_summary = (
+            self._state.run_trace_manager.summary(limit=8)
+            if getattr(self._state, "run_trace_manager", None)
+            else {
+                "active_run": {},
+                "recent_runs": [],
+                "recent_failures": [],
+                "latest_recovery_summary": {},
+                "run_heartbeat": {},
+                "last_runtime_event": {},
+                "touched_path_counts": {},
+                "grounding_counts": {},
+                "selected_run_ids": [],
+            }
+        )
+        self._state.runtime_state = {
+            "active_run_id": (runtime_summary.get("active_run") or {}).get("run_id", ""),
+            "active_status": (runtime_summary.get("active_run") or {}).get("status", ""),
+            "recent_run_count": len(runtime_summary.get("recent_runs", [])),
+            "recent_failure_count": len(runtime_summary.get("recent_failures", [])),
+        }
 
         agent_count = max(event_agent_count, len({row.actor_id for row in session_rows}))
         current_agent = {}
@@ -879,6 +923,7 @@ class ProjectionManager:
             "recent_tools": recent_tools,
             "recent_evidence": recent_evidence,
             "recent_change_hunks": memory_summary.get("recent_change_hunks", []),
+            "recent_runs": runtime_summary.get("recent_runs", []),
         }
 
         present = {
@@ -930,6 +975,7 @@ class ProjectionManager:
             "pending_approvals": approval_count,
             "tool_count": tool_count,
             "memory": memory_summary,
+            "runtime": runtime_summary,
         }
 
         future = {
@@ -1018,6 +1064,7 @@ class ProjectionManager:
             "python smoke_test.py",
             "python -m src.app cli projection handoff",
             "python -m src.app cli projection agent_bootstrap",
+            "python -m src.app cli projection runtime_cockpit",
             "python -m src.app cli journal-query --kind todo --status open",
             "python -m src.app ui",
         ]
@@ -1089,6 +1136,46 @@ class ProjectionManager:
         # Fall back to the stub meta key.
         meta = self._store.get_meta(f"proj_stub_refreshed_at:{name}")
         return meta or ""
+
+    def _build_runtime_cockpit(self) -> None:
+        ts = now_iso()
+        summary = (
+            self._state.run_trace_manager.summary(limit=12)
+            if getattr(self._state, "run_trace_manager", None)
+            else {
+                "active_run": {},
+                "recent_runs": [],
+                "recent_failures": [],
+                "latest_recovery_summary": {},
+                "run_heartbeat": {},
+                "last_runtime_event": {},
+                "touched_path_counts": {},
+                "grounding_counts": {},
+                "selected_run_ids": [],
+            }
+        )
+        self._store.execute("DELETE FROM proj_runtime_cockpit;")
+        self._store.execute(
+            """
+            INSERT OR REPLACE INTO proj_runtime_cockpit(
+                id, active_run_json, recent_runs_json, recent_failures_json,
+                latest_recovery_summary_json, run_heartbeat_json, last_runtime_event_json,
+                touched_path_counts_json, grounding_counts_json, selected_run_ids_json, last_refreshed_at
+            ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                safe_json_dumps(summary.get("active_run", {})),
+                safe_json_dumps(summary.get("recent_runs", [])),
+                safe_json_dumps(summary.get("recent_failures", [])),
+                safe_json_dumps(summary.get("latest_recovery_summary", {})),
+                safe_json_dumps(summary.get("run_heartbeat", {})),
+                safe_json_dumps(summary.get("last_runtime_event", {})),
+                safe_json_dumps(summary.get("touched_path_counts", {})),
+                safe_json_dumps(summary.get("grounding_counts", {})),
+                safe_json_dumps(summary.get("selected_run_ids", [])),
+                ts,
+            ),
+        )
 
 
 # ---------------------------------------------------------------------------

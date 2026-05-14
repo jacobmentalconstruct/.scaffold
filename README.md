@@ -1,7 +1,7 @@
 # `.scaffold/` — Vended Sidecar Package
 
-> **Status:** T6/T6.1 complete and parked (2026-05-13). Spine boot ✓, journal ✓, install + scan ✓, proposal-capable MCP ✓, 7 tools registered, Tk operator UI ✓, approval loop ✓, local sidecar agent floor ✓, companion monitor default/stability polish ✓, schema v8 memory layer ✓, continuity alignment ✓.
-> See [IMPLEMENTATION_ROADMAP.md](IMPLEMENTATION_ROADMAP.md) for tranche progress. T6 parked explicit STM, Bag of Evidence archival, Evidence Shelf visibility, and per-hunk line provenance; T6.1 sealed the post-park continuity alignment; T7 is next.
+> **Status:** T7 complete and parked (2026-05-14). Spine boot ✓, journal ✓, install + scan ✓, proposal-capable MCP ✓, 7 tools registered, Tk operator UI ✓, approval loop ✓, local sidecar agent floor ✓, schema v8 memory layer ✓, runtime trace/cockpit ✓, continuity alignment ✓.
+> See [IMPLEMENTATION_ROADMAP.md](IMPLEMENTATION_ROADMAP.md) for tranche progress. T7 parked durable local-agent run traces, normalized recovery classification, explicit retry lineage, compact runtime projections, and the operator cockpit uplift; T8 is next.
 >
 > **New here?** Read **[ONBOARDING.md](ONBOARDING.md)** first — explicit reading order + verification commands.
 
@@ -77,4 +77,4 @@ Use `--no-ui` when you intentionally want a headless run.
 
 ## Status
 
-This package is currently being hardened in **development scope** — i.e., `.scaffold/` *is* the active project being built, not yet vended into a host. T5 reintroduced the local Ollama sidecar agent with bootstrap parity, approval-aware bounded writes, explicit session-backed authority rows, and operator controls; T6 completed the three-layer memory model with STM overflow into a Bag of Evidence, an Evidence Shelf surfaced in bootstrap/UI, and per-hunk code-change provenance. T7 now takes over the runtime-hardening horizon. See `contracts/builder_constraint_contract.md` §0.10 for the dual-scope definition.
+This package is currently being hardened in **development scope** — i.e., `.scaffold/` *is* the active project being built, not yet vended into a host. T5 reintroduced the local Ollama sidecar agent with bootstrap parity, approval-aware bounded writes, explicit session-backed authority rows, and operator controls; T6 completed the three-layer memory model with STM overflow into a Bag of Evidence, an Evidence Shelf surfaced in bootstrap/UI, and per-hunk code-change provenance; T7 made local-agent execution a first-class temporal object with durable run traces, recovery classes, retry lineage, grounded final summaries, and a richer operator cockpit. T8 now takes over the teaching/evaluation horizon. See `contracts/builder_constraint_contract.md` §0.10 for the dual-scope definition.

@@ -39,6 +39,8 @@ class SidecarState:
     agent_session_manager: Any = None
     human_approval_manager: Any = None
     memory_manager: Any = None
+    recovery_manager: Any = None
+    run_trace_manager: Any = None
     tranche_manager: Any = None
     file_scanner: Any = None
     install_orchestrator: Any = None
@@ -53,6 +55,7 @@ class SidecarState:
     registered_tools: dict = field(default_factory=dict)
     active_task: dict | None = None
     active_tool_context: dict = field(default_factory=dict)
+    active_run_context: dict = field(default_factory=dict)
     current_projections: dict = field(default_factory=dict)
     event_log_position: int = 0
 
@@ -60,6 +63,7 @@ class SidecarState:
     journal_state: dict = field(default_factory=dict)
     evidence_bag_state: dict = field(default_factory=dict)
     memory_state: dict = field(default_factory=dict)
+    runtime_state: dict = field(default_factory=dict)
     ontology_state: dict = field(default_factory=dict)
     agent_status: dict = field(default_factory=dict)
     human_ui_status: dict = field(default_factory=dict)
@@ -104,6 +108,7 @@ class SidecarState:
             "agent_status": dict(self.agent_status),
             "human_ui_status": dict(self.human_ui_status),
             "memory_state": dict(self.memory_state),
+            "runtime_state": dict(self.runtime_state),
         }
 
     # --- narrow mutators (called by event commit) ----------------------

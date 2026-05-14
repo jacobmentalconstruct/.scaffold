@@ -252,10 +252,13 @@ class MonitoringConsole(ttk.Frame):
         self.master = master
         self.state = state
         self._tab_ids: dict[str, str] = {}
+        self._refresh_after_id: str | None = None
+        self._closed = False
 
         self.master.title(".scaffold — Tk Operator Console")
         self.master.geometry("1680x1020")
         self.master.minsize(1240, 820)
+        self.master.bind("<Destroy>", self._on_destroy, add="+")
 
         _configure_style(master)
 
@@ -356,13 +359,28 @@ class MonitoringConsole(ttk.Frame):
             self._notebook.select(tab_widget)
 
     def _refresh_loop(self) -> None:
+        if self._closed:
+            return
         try:
             bundle = self._load_bundle()
             self._apply_bundle(bundle)
+        except tk.TclError:
+            self._closed = True
+            return
         except Exception as exc:
             self._status_var.set(f"UI refresh error: {type(exc).__name__}: {exc}")
         finally:
-            self.master.after(POLL_MS, self._refresh_loop)
+            if not self._closed and self.master.winfo_exists():
+                self._refresh_after_id = self.master.after(POLL_MS, self._refresh_loop)
+
+    def _on_destroy(self, _event=None) -> None:
+        self._closed = True
+        if self._refresh_after_id and self.master.winfo_exists():
+            try:
+                self.master.after_cancel(self._refresh_after_id)
+            except tk.TclError:
+                pass
+            self._refresh_after_id = None
 
     def _load_bundle(self) -> dict:
         self.state.human_ui_status.update(
@@ -384,6 +402,7 @@ class MonitoringConsole(ttk.Frame):
         evidence_rows = self.state.projections.read("evidence_bag").rows
         project_rows = self.state.projections.read("project_map").rows
         handoff_row = _first_row(self.state.projections.read("handoff").rows)
+        runtime_cockpit_row = _first_row(self.state.projections.read("runtime_cockpit").rows)
 
         contract_text = ""
         blob_ref = (self.state.current_contract or {}).get("text_blob_ref")
@@ -416,6 +435,17 @@ class MonitoringConsole(ttk.Frame):
             "reading_order": _loads(handoff_row.get("reading_order_json"), []),
             "verification_commands": _loads(handoff_row.get("verification_commands_json"), []),
         }
+        runtime_cockpit = {
+            "active_run": _loads(runtime_cockpit_row.get("active_run_json"), {}),
+            "recent_runs": _loads(runtime_cockpit_row.get("recent_runs_json"), []),
+            "recent_failures": _loads(runtime_cockpit_row.get("recent_failures_json"), []),
+            "latest_recovery_summary": _loads(runtime_cockpit_row.get("latest_recovery_summary_json"), {}),
+            "run_heartbeat": _loads(runtime_cockpit_row.get("run_heartbeat_json"), {}),
+            "last_runtime_event": _loads(runtime_cockpit_row.get("last_runtime_event_json"), {}),
+            "touched_path_counts": _loads(runtime_cockpit_row.get("touched_path_counts_json"), {}),
+            "grounding_counts": _loads(runtime_cockpit_row.get("grounding_counts_json"), {}),
+            "selected_run_ids": _loads(runtime_cockpit_row.get("selected_run_ids_json"), []),
+        }
         operator_row = self.state.store.query_one(
             """
             SELECT actor_id FROM acknowledgments
@@ -447,6 +477,7 @@ class MonitoringConsole(ttk.Frame):
             "human_dashboard": human_dashboard,
             "tranche_checklist": tranche_rows,
             "handoff": handoff,
+            "runtime_cockpit": runtime_cockpit,
             "default_operator_actor": operator_row["actor_id"] if operator_row else "human:ui",
         }
 

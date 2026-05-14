@@ -185,6 +185,16 @@ def _build_parser() -> argparse.ArgumentParser:
     p_lastop = sub.add_parser("local-agent-stop", help="Request a cooperative stop for the local sidecar agent.")
     p_lastop.add_argument("--actor", default="", help="Agent actor id to stop.")
     p_lastop.add_argument("--session-id", default="", help="Specific session id to stop.")
+    p_larl = sub.add_parser("local-agent-run-list", help="List recent traced local-agent runs.")
+    p_larl.add_argument("--limit", type=int, default=20, help="Max runs to return.")
+    p_lars = sub.add_parser("local-agent-run-show", help="Show one traced local-agent run.")
+    p_lars.add_argument("--run-id", required=True, help="Run id.")
+    p_lare = sub.add_parser("local-agent-run-events", help="Show runtime events for one traced run.")
+    p_lare.add_argument("--run-id", required=True, help="Run id.")
+    p_lare.add_argument("--limit", type=int, default=200, help="Max events to return.")
+    sub.add_parser("local-agent-recovery-summary", help="Show recent classified local-agent failures/stops.")
+    p_larr = sub.add_parser("local-agent-run-retry", help="Retry a retryable local-agent run from its captured snapshot.")
+    p_larr.add_argument("--run-id", required=True, help="Run id to retry.")
 
     # ---- tranche ledger (T2.5) ----------------------------------------
     p_td = sub.add_parser("tranche-declare", help="Declare a new active tranche.")
@@ -850,6 +860,57 @@ def _cmd_local_agent_stop(state, args) -> int:
     return 0
 
 
+def _cmd_local_agent_run_list(state, args) -> int:
+    runs = state.run_trace_manager.list_runs(limit=args.limit) if getattr(state, "run_trace_manager", None) else []
+    _print_json({"count": len(runs), "runs": [_run_to_dict(run) for run in runs]})
+    return 0
+
+
+def _cmd_local_agent_run_show(state, args) -> int:
+    manager = getattr(state, "run_trace_manager", None)
+    if manager is None:
+        _print_json({"error": "run_trace_manager unavailable"})
+        return 1
+    run = manager.get_run(args.run_id)
+    if run is None:
+        sys.stderr.write(f"no such run: {args.run_id}\n")
+        return 2
+    _print_json(
+        {
+            "run": _run_to_dict(run),
+            "rounds": manager.get_run_rounds(args.run_id),
+            "touched_paths": manager.get_run_touched_paths(args.run_id),
+            "links": manager.get_run_links(args.run_id),
+            "grounding": manager.get_run_grounding(args.run_id),
+        }
+    )
+    return 0
+
+
+def _cmd_local_agent_run_events(state, args) -> int:
+    manager = getattr(state, "run_trace_manager", None)
+    if manager is None:
+        _print_json({"error": "run_trace_manager unavailable"})
+        return 1
+    _print_json({"run_id": args.run_id, "events": manager.get_run_events(args.run_id, limit=args.limit)})
+    return 0
+
+
+def _cmd_local_agent_recovery_summary(state, args) -> int:
+    manager = getattr(state, "run_trace_manager", None)
+    if manager is None:
+        _print_json({"error": "run_trace_manager unavailable"})
+        return 1
+    _print_json({"recoveries": manager.recovery_summary(limit=20)})
+    return 0
+
+
+def _cmd_local_agent_run_retry(state, args) -> int:
+    result = state.local_agent_runtime.retry_run(args.run_id)
+    _print_json(result)
+    return 0 if result.get("status") in {"completed", "awaiting_approval", "ok"} else 1
+
+
 def _cmd_tranche_declare(state, args) -> int:
     request = {
         "title": args.title,
@@ -1115,6 +1176,11 @@ _COMMANDS = {
     "local-agent-preflight": _cmd_local_agent_preflight,
     "local-agent-run": _cmd_local_agent_run,
     "local-agent-stop": _cmd_local_agent_stop,
+    "local-agent-run-list": _cmd_local_agent_run_list,
+    "local-agent-run-show": _cmd_local_agent_run_show,
+    "local-agent-run-events": _cmd_local_agent_run_events,
+    "local-agent-recovery-summary": _cmd_local_agent_recovery_summary,
+    "local-agent-run-retry": _cmd_local_agent_run_retry,
     # T2.5 Active Tranche Ledger
     "tranche-declare": _cmd_tranche_declare,
     "tranche-status": _cmd_tranche_status,
@@ -1133,6 +1199,33 @@ _COMMANDS = {
 
 def _print_json(obj) -> None:
     sys.stdout.write(safe_json_dumps(obj, indent=2) + "\n")
+
+
+def _run_to_dict(run) -> dict:
+    return {
+        "run_id": run.run_id,
+        "session_id": run.session_id,
+        "actor_id": run.actor_id,
+        "model": run.model,
+        "status": run.status,
+        "authority_level": run.authority_level,
+        "task_summary": run.task_summary,
+        "started_at": run.started_at,
+        "ended_at": run.ended_at,
+        "final_summary": run.final_summary,
+        "final_message": run.final_message,
+        "recovery_class": run.recovery_class,
+        "retryable": run.retryable,
+        "operator_hint": run.operator_hint,
+        "retried_from_run_id": run.retried_from_run_id,
+        "last_round_index": run.last_round_index,
+        "last_runtime_event_type": run.last_runtime_event_type,
+        "journal_entry_uid": run.journal_entry_uid,
+        "approval_request_id": run.approval_request_id,
+        "approval_grant_id": run.approval_grant_id,
+        "config_snapshot": run.config_snapshot,
+        "metadata": run.metadata,
+    }
 
 
 def _print_result(envelope, args) -> int:
