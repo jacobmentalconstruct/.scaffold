@@ -768,6 +768,48 @@ _T9_DDL: tuple[str, ...] = (
 )
 
 
+# ----------------------------------------------------------------------------
+# Migration v12 — T10: Tranche Review Gate + Horizon Semantics Hardening
+# ----------------------------------------------------------------------------
+
+_T10_DDL: tuple[str, ...] = (
+    """
+    ALTER TABLE active_tranche
+    ADD COLUMN current_review_id TEXT;
+    """,
+    """
+    ALTER TABLE active_tranche
+    ADD COLUMN last_review_status TEXT NOT NULL DEFAULT '';
+    """,
+    """
+    ALTER TABLE active_tranche
+    ADD COLUMN last_reviewed_at TEXT;
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS tranche_review_packets (
+        review_id TEXT PRIMARY KEY,
+        tranche_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        generated_at TEXT NOT NULL,
+        generated_by_actor TEXT NOT NULL,
+        review_packet_json_ref TEXT NOT NULL,
+        review_packet_markdown_ref TEXT NOT NULL,
+        smoke_snapshot_json TEXT NOT NULL DEFAULT '{}',
+        latest_decision_ids_json TEXT NOT NULL DEFAULT '[]',
+        latest_test_records_json TEXT NOT NULL DEFAULT '[]',
+        reviewed_by_actor TEXT,
+        reviewed_at TEXT,
+        return_reason TEXT NOT NULL DEFAULT '',
+        approval_notes TEXT NOT NULL DEFAULT '',
+        event_id TEXT NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}'
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_tranche_review_packets_tranche ON tranche_review_packets(tranche_id, generated_at DESC);",
+    "CREATE INDEX IF NOT EXISTS idx_tranche_review_packets_status ON tranche_review_packets(status, generated_at DESC);",
+)
+
+
 # Migration registry: version → (description, list of statements).
 # Migrations run in version order, idempotent.
 _MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
@@ -782,6 +824,7 @@ _MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
     (9, "T7 Run Trace, Recovery, and Operator Cockpit", _T7_DDL),
     (10, "T8 Teaching Sandbox + Training Runway", _T8_DDL),
     (11, "T9 Installed-Project Proof + Vendability Seal", _T9_DDL),
+    (12, "T10 Tranche Review Gate + Horizon Semantics Hardening", _T10_DDL),
 )
 
 

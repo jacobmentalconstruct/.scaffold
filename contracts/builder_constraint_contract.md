@@ -152,9 +152,21 @@ The builder shall preserve the distinction between:
 - **Design truth:** `/ARCHITECTURE.md` at the sidecar root.
 - **Runtime-consumed truth:** the host project's own internal data stores (which the sidecar reads but does not own).
 
-### **D. Park Phase Discipline** *(added 2026-05-11; codifies what was previously a conversational ritual — see journal entry `journal_18ae7fbc35603af0_ec2ea642`)*
+### **D. Review Gate + Park Phase Discipline** *(added 2026-05-11; tightened 2026-05-14 to add a required human review gate before Park Phase)*
 
-Every tranche closes with a Park Phase per `ARCHITECTURE.md §12.2`. The phase is **not optional** and is **not memorized in chat** — it is encoded in the codebase and enforced by `smoke_test.py`.
+Every tranche closes in two explicit phases per `ARCHITECTURE.md §12.2`:
+
+1. **Review Gate** — implementation completes, a mechanical tranche review packet is generated, and a human explicitly either returns the tranche to the agent or approves Park Phase.
+2. **Park Phase** — only after review approval may the tranche be sealed into its final parking record.
+
+This discipline is **not optional** and is **not memorized in chat** — it is encoded in the codebase and enforced by `smoke_test.py`.
+
+Rules:
+- `request_tranche_review` moves an `active` tranche to `review_pending`.
+- `return_tranche_review` reopens the **same tranche** as `active` and preserves human feedback in carry-forward state.
+- `approve_tranche_review` moves the tranche to `review_approved`.
+- `close_tranche` may only run from `review_approved`.
+- No agent or automatic path may self-approve review.
 
 A complete parking record is the union of these five artifacts. If any one is missing, the tranche is not parked and the next tranche must not begin:
 
@@ -162,8 +174,8 @@ A complete parking record is the union of these five artifacts. If any one is mi
 2. The park-notes file itself (`_docs/T_n_PARK_NOTES.md`) and its blob in `blob_store`.
 3. **All continuity docs updated** (this is the most-drifted step — make it mechanical):
     - `ONBOARDING.md` — reading order and verification commands reflect current surfaces.
-    - `WE_ARE_HERE_NOW.md` — fast pickup note reflects the latest parked tranche and active horizon.
-    - `NORTHSTARS.md` — satisfied substrate capabilities and active horizons updated.
+    - `WE_ARE_HERE_NOW.md` — fast pickup note reflects the latest parked tranche, any current tranche, and the next horizon with unambiguous wording.
+    - `NORTHSTARS.md` — satisfied substrate capabilities and next horizons updated.
     - `DEV_LOG.md` — append-only milestone narrative extended for the tranche.
     - `IMPLEMENTATION_ROADMAP.md` — tranche marked `COMPLETE` with metrics and entry uid.
     - `SOURCE_PROVENANCE.md` — dated entry distinguishing original code vs structural borrows.
@@ -173,7 +185,7 @@ A complete parking record is the union of these five artifacts. If any one is mi
 4. An `accept_task` envelope and a correlated `complete_task` envelope (the tranche lifecycle events).
 5. A `close_journal_entry` envelope moving the tranche entry's status from `'open'` → `'closed'`. The entry's content is immutable per `ARCHITECTURE.md §13.1` (Journal Doctrine); the status change is a non-destructive lifecycle update.
 
-**Verification:** `python smoke_test.py` includes **drift-detection sections** that fail when any of the above is missing. If smoke test fails, the tranche is not parked. **A failed Park Phase is a HARD_BLOCK gate violation** for any non-bootstrap intent submitted after the tranche's last `complete_task` event — i.e., the next tranche cannot proceed.
+**Verification:** `python smoke_test.py` includes **drift-detection sections** that fail when any of the above is missing. If smoke test fails, the tranche is not parked. **A failed Review Gate or Park Phase is a HARD_BLOCK gate violation** for any non-bootstrap intent submitted after the tranche's last `complete_task` event — i.e., the next tranche cannot proceed.
 
 ---
 

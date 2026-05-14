@@ -1,4 +1,4 @@
-# NORTHSTARS.md — Satisfied Capabilities and Active Horizons
+# NORTHSTARS.md — Satisfied Capabilities and Next Horizons
 
 ## Satisfied substrate capabilities
 
@@ -15,9 +15,11 @@
 - Fresh installed-project vendability proof with a governed host mutation, trace/evidence/journal/projection chain, and cold-team handoff packet.
 - Generated closeout metadata surfaces so latest parked tranche identifiers and CAS refs are derived mechanically instead of mirrored by hand.
 
-## Active horizon
+## Next horizon
 
-T10 is the active horizon: post-baseline hardening and optional expansion only after the vendable substrate baseline has already been proven.
+The current open tranche is `T10 Tranche Review Gate + Horizon Semantics Hardening`.
+
+The next horizon after that slice remains T10 post-baseline hardening and optional expansion only after the vendable substrate baseline has already been proven.
 
 The deferred backlog is now explicitly tranche-mapped in `IMPLEMENTATION_ROADMAP.md` and mirrored into open journal todos so carry-forward work is visible in the UI, projections, and handoff flow.
 

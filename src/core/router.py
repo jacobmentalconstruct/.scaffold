@@ -53,6 +53,7 @@ _SCAN_INTENTS = frozenset({"scan", "rescan_path"})
 # T2.5: Tranche Ledger intents that need PENDING → real event_id finalization.
 _TRANCHE_DECLARE_INTENTS = frozenset({"declare_tranche"})
 _DECISION_INTENTS = frozenset({"record_decision"})
+_REVIEW_REQUEST_INTENTS = frozenset({"request_tranche_review"})
 _APPROVAL_INTENTS = frozenset({
     "request_authority_elevation",
     "approve_authority_request",
@@ -184,6 +185,16 @@ class Router:
                 self._tranche_manager.finalize_decision_event_id(sealed)
             except Exception as e:
                 log.error("decision finalize failed for event %s: %s", sealed.event_id, e)
+        elif envelope.operation_intent in _REVIEW_REQUEST_INTENTS \
+                and self._tranche_manager is not None:
+            try:
+                if sealed.payload_ref:
+                    payload = self._state.blob_store.get_json(sealed.payload_ref)
+                    review_id = str(payload.get("review_id", ""))
+                    if review_id:
+                        self._tranche_manager.finalize_review_event_id(review_id, sealed.event_id)
+            except Exception as e:
+                log.error("review finalize failed for event %s: %s", sealed.event_id, e)
         elif envelope.operation_intent in _APPROVAL_INTENTS \
                 and getattr(self._state, "human_approval_manager", None) is not None:
             try:

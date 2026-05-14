@@ -63,6 +63,112 @@ class CloseoutOrchestrator:
         self._journal = journal_manager
         self._blob = blob_store
 
+    def handle_request_tranche_review(
+        self, envelope: "SidecarEnvelope", state: "SidecarState"
+    ) -> "SidecarEnvelope":
+        tranche = self._tranche.get_active()
+        if not tranche:
+            raise RuntimeError("No active tranche — only an active tranche can be submitted for review.")
+
+        checklist = self._tranche.build_checklist(state)
+        required_failures = [
+            c for c in checklist
+            if c.required and c.status not in ("pass",)
+            and c.item_id not in ("review_approved", "park_notes_written", "journal_entry_closed")
+        ]
+        if required_failures:
+            failure_summary = "; ".join(f"{c.item_id}={c.status}: {c.detail}" for c in required_failures)
+            raise RuntimeError(
+                f"request_tranche_review blocked — tranche is not ready for review:\n  {failure_summary}"
+            )
+
+        decisions = self._tranche.get_decisions(tranche.tranche_id)
+        packet = self._compile_review_packet(state, tranche, decisions, checklist)
+        packet_refs = self._write_review_packet_files(state, tranche, packet)
+        review_id = self._tranche.create_review_packet(
+            tranche_id=tranche.tranche_id,
+            actor_id=envelope.actor_id,
+            review_packet_json_ref=packet_refs["json_blob_ref"],
+            review_packet_markdown_ref=packet_refs["markdown_blob_ref"],
+            smoke_snapshot=packet.get("verification", {}),
+            latest_decision_ids=[d.decision_id for d in decisions],
+            latest_test_records=tranche.tests_run[-10:],
+            metadata={
+                "json_export_path": packet_refs["json_export_path"],
+                "markdown_export_path": packet_refs["markdown_export_path"],
+                "title": tranche.title,
+            },
+        )
+        response = {
+            "status": "review_pending",
+            "review_id": review_id,
+            "tranche_id": tranche.tranche_id,
+            "title": tranche.title,
+            "json_export_path": packet_refs["json_export_path"],
+            "markdown_export_path": packet_refs["markdown_export_path"],
+        }
+        response_ref = self._blob.put_json(response)
+        return envelope.with_status("completed").with_payload_ref(response_ref)
+
+    def handle_return_tranche_review(
+        self, envelope: "SidecarEnvelope", state: "SidecarState"
+    ) -> "SidecarEnvelope":
+        tranche = self._tranche.get_current()
+        if not tranche or tranche.status != "review_pending":
+            raise RuntimeError("No review_pending tranche — nothing to return to the agent.")
+        if not envelope.actor_id.startswith("human:"):
+            raise RuntimeError("Only a human actor may return a tranche review.")
+        request = self._read_payload(envelope)
+        reason = str(request.get("return_reason", "")).strip()
+        if not reason:
+            raise ValueError("return_tranche_review requires non-empty return_reason.")
+        review_id = str(request.get("review_id") or tranche.current_review_id or "").strip()
+        if not review_id:
+            raise RuntimeError("No review_id available for the pending tranche review.")
+        self._tranche.return_review(
+            tranche_id=tranche.tranche_id,
+            review_id=review_id,
+            reviewed_by_actor=envelope.actor_id,
+            reason=reason,
+        )
+        response = {
+            "status": "active",
+            "review_id": review_id,
+            "tranche_id": tranche.tranche_id,
+            "title": tranche.title,
+            "return_reason": reason,
+        }
+        return envelope.with_status("completed").with_payload_ref(self._blob.put_json(response))
+
+    def handle_approve_tranche_review(
+        self, envelope: "SidecarEnvelope", state: "SidecarState"
+    ) -> "SidecarEnvelope":
+        tranche = self._tranche.get_current()
+        if not tranche or tranche.status != "review_pending":
+            raise RuntimeError("No review_pending tranche — nothing to approve for Park Phase.")
+        if not envelope.actor_id.startswith("human:"):
+            raise RuntimeError("Only a human actor may approve tranche review.")
+        request = self._read_payload(envelope)
+        review_id = str(request.get("review_id") or tranche.current_review_id or "").strip()
+        if not review_id:
+            raise RuntimeError("No review_id available for approval.")
+        notes = str(request.get("approval_notes", "")).strip()
+        self._tranche.approve_review(
+            tranche_id=tranche.tranche_id,
+            review_id=review_id,
+            reviewed_by_actor=envelope.actor_id,
+            notes=notes,
+        )
+        response = {
+            "status": "review_approved",
+            "review_id": review_id,
+            "tranche_id": tranche.tranche_id,
+            "title": tranche.title,
+            "approval_notes": notes,
+            "park_ready": True,
+        }
+        return envelope.with_status("completed").with_payload_ref(self._blob.put_json(response))
+
     # ===== envelope handler (called by Router) =========================
 
     def handle_close_tranche(
@@ -91,10 +197,15 @@ class CloseoutOrchestrator:
         ollama_num_predict = int(request.get("ollama_num_predict", 8192))
 
         # --- 1. Get active tranche ----------------------------------------
-        tranche = self._tranche.get_active()
+        tranche = self._tranche.get_current()
         if not tranche:
             raise RuntimeError(
-                "No active tranche — run tranche-declare before close_tranche."
+                "No current tranche — run tranche-declare before close_tranche."
+            )
+        if tranche.status != "review_approved":
+            raise RuntimeError(
+                f"close_tranche blocked — tranche status is {tranche.status!r}. "
+                "Run tranche-review-request, get explicit human approval, then close."
             )
 
         # --- 2. Validate checklist ----------------------------------------
@@ -316,6 +427,208 @@ class CloseoutOrchestrator:
         )
 
     # ===== Park notes compiler =========================================
+
+    def _compile_review_packet(
+        self,
+        state: "SidecarState",
+        tranche: "ActiveTranche",
+        decisions: list,
+        checklist: list,
+    ) -> dict:
+        run_summary = (
+            state.run_trace_manager.summary(limit=6)
+            if getattr(state, "run_trace_manager", None)
+            else {}
+        )
+        handoff_row = state.store.query_one("SELECT * FROM proj_handoff WHERE id = 1;")
+        def _row_value(name: str, default: str) -> str:
+            if not handoff_row:
+                return default
+            try:
+                value = handoff_row[name]
+            except Exception:
+                return default
+            return value if value is not None else default
+        handoff = {
+            "latest_closed_tranche": json.loads(_row_value("latest_closed_tranche_json", "{}")),
+            "active_tranche": json.loads(_row_value("active_tranche_json", "{}")),
+            "active_horizon": json.loads(_row_value("active_horizon_json", "{}")),
+            "open_questions": json.loads(_row_value("open_questions_json", "[]")),
+        } if handoff_row else {"latest_closed_tranche": {}, "active_tranche": {}, "active_horizon": {}, "open_questions": []}
+
+        tools = []
+        if getattr(state, "tool_registry_manager", None):
+            tools = [tool.tool_name for tool in state.tool_registry_manager.list_tools()]
+
+        packet = {
+            "tranche_id": tranche.tranche_id,
+            "title": tranche.title,
+            "status": "review_pending",
+            "generated_at": now_iso(),
+            "declared_scope": tranche.declared_scope,
+            "declared_non_goals": tranche.declared_non_goals,
+            "declared_completion_criteria": tranche.declared_completion_criteria,
+            "what_landed": {
+                "files_changed_count": len(tranche.files_changed),
+                "decisions_count": len(decisions),
+                "schema_version": state.store.schema_version(),
+                "registered_tools_count": len(tools),
+                "recent_run_count": len((run_summary or {}).get("recent_runs", [])),
+            },
+            "decisions": [
+                {
+                    "decision_id": d.decision_id,
+                    "title": d.title,
+                    "impact_area": d.impact_area,
+                    "rationale": d.rationale,
+                    "outcome": d.outcome,
+                    "importance": d.importance,
+                }
+                for d in decisions
+            ],
+            "files_changed": tranche.files_changed,
+            "verification": {
+                "tests_run": tranche.tests_run,
+                "required_checklist": [
+                    {
+                        "item_id": c.item_id,
+                        "status": c.status,
+                        "detail": c.detail,
+                        "required": c.required,
+                    }
+                    for c in checklist
+                ],
+            },
+            "schema_tools_runtime": {
+                "schema_version": state.store.schema_version(),
+                "tools": tools,
+                "runtime_summary": run_summary,
+            },
+            "out_of_scope": tranche.declared_non_goals,
+            "remains_deferred": handoff.get("open_questions", []),
+            "proposed_next_horizon": handoff.get("active_horizon", {}),
+            "open_questions": tranche.open_questions,
+        }
+        return packet
+
+    def _write_review_packet_files(
+        self,
+        state: "SidecarState",
+        tranche: "ActiveTranche",
+        packet: dict,
+    ) -> dict:
+        docs_stem = _make_notes_filename(tranche.title).replace("_PARK_NOTES.md", "")
+        stamp = now_iso().replace(":", "").replace("-", "").replace(".", "")
+        export_dir = Path(state.sidecar_root) / "exports" / "tranche_reviews" / docs_stem
+        export_dir.mkdir(parents=True, exist_ok=True)
+        json_path = export_dir / f"review_{stamp}.json"
+        md_path = export_dir / f"review_{stamp}.md"
+
+        json_text = safe_json_dumps(packet, indent=2) + "\n"
+        markdown = self._compile_review_markdown(packet)
+        json_path.write_text(json_text, encoding="utf-8")
+        md_path.write_text(markdown, encoding="utf-8")
+        json_blob_ref = self._blob.put_text(json_text, content_type="application/json")
+        markdown_blob_ref = self._blob.put_text(markdown, content_type="text/markdown")
+        _, sidecar_root_label = public_root_labels(state.sidecar_root, state.project_root)
+        return {
+            "json_blob_ref": json_blob_ref,
+            "markdown_blob_ref": markdown_blob_ref,
+            "json_export_path": public_path(json_path, state.sidecar_root, sidecar_root_label),
+            "markdown_export_path": public_path(md_path, state.sidecar_root, sidecar_root_label),
+        }
+
+    def _compile_review_markdown(self, packet: dict) -> str:
+        lines = [
+            f"# Tranche Review — {packet.get('title', '')}",
+            "",
+            f"> Generated: {packet.get('generated_at', '')}",
+            f"> tranche_id: {packet.get('tranche_id', '')}",
+            "",
+            "## Declared Scope",
+            packet.get("declared_scope", "") or "_(none)_",
+            "",
+            "## Explicit Non-goals",
+            packet.get("declared_non_goals", "") or "_(none)_",
+            "",
+            "## Completion Criteria",
+            packet.get("declared_completion_criteria", "") or "_(none)_",
+            "",
+            "## What Landed",
+            f"- files_changed_count: {packet.get('what_landed', {}).get('files_changed_count', 0)}",
+            f"- decisions_count: {packet.get('what_landed', {}).get('decisions_count', 0)}",
+            f"- schema_version: {packet.get('what_landed', {}).get('schema_version', 0)}",
+            f"- registered_tools_count: {packet.get('what_landed', {}).get('registered_tools_count', 0)}",
+            "",
+            "## Decisions Recorded",
+        ]
+        decisions = packet.get("decisions", [])
+        if decisions:
+            for item in decisions:
+                lines.extend(
+                    [
+                        f"- {item.get('title', '')}",
+                        f"  impact_area: {item.get('impact_area', '')}",
+                        f"  outcome: {item.get('outcome', '')}",
+                    ]
+                )
+        else:
+            lines.append("_(none)_")
+        lines.extend(
+            [
+                "",
+                "## Files Changed",
+            ]
+        )
+        files_changed = packet.get("files_changed", [])
+        if files_changed:
+            for item in files_changed:
+                lines.append(f"- {item.get('path', '')} ({item.get('change_type', 'modified')})")
+        else:
+            lines.append("_(none tracked)_")
+        lines.extend(
+            [
+                "",
+                "## Verification Passed",
+            ]
+        )
+        for item in packet.get("verification", {}).get("required_checklist", []):
+            if item.get("required"):
+                lines.append(f"- {item.get('item_id')}: {item.get('status')} — {item.get('detail', '')}")
+        lines.extend(
+            [
+                "",
+                "## What Was Explicitly Out Of Scope",
+                packet.get("out_of_scope", "") or "_(none)_",
+                "",
+                "## What Remains Deferred",
+            ]
+        )
+        deferred = packet.get("remains_deferred", [])
+        if deferred:
+            lines.extend([f"- {item}" for item in deferred])
+        else:
+            lines.append("_(none)_")
+        lines.extend(
+            [
+                "",
+                "## Proposed Next Horizon",
+                safe_json_dumps(packet.get("proposed_next_horizon", {}), indent=2),
+                "",
+                "## Open Questions / Doubts Before Park",
+            ]
+        )
+        open_questions = packet.get("open_questions", [])
+        if open_questions:
+            for item in open_questions:
+                if isinstance(item, dict):
+                    lines.append(f"- {item.get('question', '')}")
+                else:
+                    lines.append(f"- {item}")
+        else:
+            lines.append("_(none)_")
+        lines.extend(["", "_Mechanically compiled from active_tranche, decisions, tests, projections, and runtime state._", ""])
+        return "\n".join(lines)
 
     def _compile_park_notes(
         self,

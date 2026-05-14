@@ -168,7 +168,7 @@ When designing anything that persists, ask: STM, Bag, or LTM?
 
 ## How to close a tranche (the codified ritual)
 
-Per **contract §D / ARCHITECTURE.md §12.2 + §3.7** — all five Park Phase artifacts are now produced by the `close_tranche` envelope (the "push a button" path). Manual steps are kept for reference.
+Per **contract §D / ARCHITECTURE.md §12.2 + §3.7** — tranche close now has a required **Review Gate** before the existing Park Phase artifacts are sealed. Manual steps are kept for reference.
 
 ### Active Tranche Ledger path (T2.5+, recommended)
 
@@ -198,16 +198,27 @@ python -m src.app cli tranche-status
 python smoke_test.py  # must exit 0
 python -m src.app cli tranche-smoke-pass --actor "human:you"
 
-# Push the button — compile notes, create journal entry, seal ledger:
-python -m src.app cli tranche-close --actor "human:you"
+# Request the mechanical review packet:
+python -m src.app cli tranche-review-request --actor "human:you"
+
+# Inspect the generated packet:
+python -m src.app cli tranche-review-show
+
+# Either return the tranche to the agent:
+python -m src.app cli tranche-review-return --actor "human:you" --reason "Tighten the out-of-scope list first"
+
+# Or approve review and immediately run Park Phase:
+python -m src.app cli tranche-review-approve --actor "human:you"
 ```
 
-At close, the orchestrator:
+At close, the orchestrator now:
 1. Validates the checklist (contract acked, scope declared, smoke passed)
-2. Compiles `_docs/Tn_PARK_NOTES.md` from the structured ledger data
-3. Creates + closes the tranche journal entry with evidence refs
-4. Seals the `active_tranche` record (status → 'parked')
-5. Updates continuity meta key
+2. Generates a mechanical review packet and moves the tranche to `review_pending`
+3. Requires explicit human approval before Park Phase can begin
+4. Compiles `_docs/Tn_PARK_NOTES.md` from the structured ledger data
+5. Creates + closes the tranche journal entry with evidence refs
+6. Seals the `active_tranche` record (status → 'parked')
+7. Updates continuity meta key
 
 ### Manual path (pre-T2.5 reference, still valid)
 1. Write `_docs/T_n_PARK_NOTES.md` manually.

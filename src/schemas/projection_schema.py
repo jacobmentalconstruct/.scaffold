@@ -30,6 +30,7 @@ PROJECTION_NAMES = (
     "runtime_cockpit",
     "training_runway",
     "installed_project_proof",
+    "tranche_review_gate",
 )
 
 
@@ -194,6 +195,15 @@ PROJECTION_COLUMNS: dict[str, tuple[str, ...]] = {
         "supersession_status_json TEXT",
         "last_refreshed_at TEXT",
     ),
+    "tranche_review_gate": (
+        "id INTEGER PRIMARY KEY CHECK (id = 1)",
+        "current_tranche_json TEXT",
+        "latest_review_json TEXT",
+        "history_json TEXT",
+        "allowed_actions_json TEXT",
+        "park_phase_allowed INTEGER",
+        "last_refreshed_at TEXT",
+    ),
 }
 
 
@@ -233,16 +243,16 @@ INTENT_AFFECTS_PROJECTIONS: dict[str, tuple[str, ...]] = {
     "accept_task": ("current_sidecar_state", "human_dashboard", "viewport_state"),
     "complete_task": ("current_sidecar_state", "human_dashboard", "viewport_state"),
 
-    # T2.5 Active Tranche Ledger
-    "declare_tranche": ("tranche_checklist", "human_dashboard", "agent_bootstrap", "viewport_state"),
-    "update_tranche":  ("tranche_checklist", "viewport_state"),
-    "record_decision": ("tranche_checklist", "agent_bootstrap", "viewport_state"),
-    "smoke_pass":      ("tranche_checklist", "viewport_state"),
+    "declare_tranche": ("tranche_checklist", "human_dashboard", "agent_bootstrap", "viewport_state", "handoff", "runtime_cockpit", "training_runway", "installed_project_proof", "tranche_review_gate"),
+    "update_tranche":  ("tranche_checklist", "viewport_state", "handoff", "tranche_review_gate"),
+    "record_decision": ("tranche_checklist", "agent_bootstrap", "viewport_state", "handoff", "runtime_cockpit", "training_runway", "installed_project_proof", "tranche_review_gate"),
+    "smoke_pass":      ("tranche_checklist", "viewport_state", "tranche_review_gate"),
+    "request_tranche_review": ("tranche_checklist", "viewport_state", "handoff", "tranche_review_gate"),
+    "return_tranche_review": ("tranche_checklist", "viewport_state", "handoff", "tranche_review_gate", "agent_bootstrap"),
+    "approve_tranche_review": ("tranche_checklist", "viewport_state", "handoff", "tranche_review_gate"),
     "close_tranche":   (
-        "tranche_checklist", "human_dashboard", "agent_bootstrap", "journal_timeline", "viewport_state", "handoff", "runtime_cockpit", "training_runway", "installed_project_proof",
+        "tranche_checklist", "human_dashboard", "agent_bootstrap", "journal_timeline", "viewport_state", "handoff", "runtime_cockpit", "training_runway", "installed_project_proof", "tranche_review_gate",
     ),
-    "declare_tranche": ("tranche_checklist", "human_dashboard", "agent_bootstrap", "viewport_state", "handoff", "runtime_cockpit", "training_runway", "installed_project_proof"),
-    "record_decision": ("tranche_checklist", "agent_bootstrap", "viewport_state", "handoff", "runtime_cockpit", "training_runway", "installed_project_proof"),
 }
 
 

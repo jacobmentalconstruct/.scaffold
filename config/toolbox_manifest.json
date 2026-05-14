@@ -3,7 +3,7 @@
   "sidecar_name": "scaffold-sidecar",
   "sidecar_version": "0.1.0",
   "sidecar_id": "sc_18ae61e3f9a3edcc_44bb8a5d",
-  "generated_at": "2026-05-14T12:41:51.188Z",
+  "generated_at": "2026-05-14T14:34:13.570Z",
   "sidecar_root_marker": ".scaffold",
   "host_invariant": "the host project does not import from .scaffold/",
   "zero_context_entry_protocol": {
@@ -20,8 +20,8 @@
   "current_contract": {
     "contract_id": "builder_constraint",
     "version": "1.0.0",
-    "text_hash": "deb074e0c6297d6477f04039e8c890f2a63f0f153ec7c57daa6fdbed38bd64a9",
-    "ack_count": 248
+    "text_hash": "97582e90bac6acbccbf272cf2e32a46d447b479ee84d2e120811cdcef1998d0b",
+    "ack_count": 273
   },
   "tiers": {
     "builder_tools": "src/tools/ \u2014 see config/tool_manifest.json for per-tool details",
@@ -78,6 +78,7 @@
     "runtime_cockpit",
     "training_runway",
     "tranche_checklist",
+    "tranche_review_gate",
     "viewport_state"
   ],
   "event_streams": [
@@ -101,10 +102,10 @@
     "python -m src.app cli journal-query --kind tranche",
     "python smoke_test.py"
   ],
-  "schema_version": 11,
-  "event_count": 1845,
+  "schema_version": 12,
+  "event_count": 1966,
   "tool_count": 7,
-  "journal_count": 421,
+  "journal_count": 459,
   "linked_resources": {
     "tool_manifest": "config/tool_manifest.json",
     "sidecar_db": "data/sidecar.db",

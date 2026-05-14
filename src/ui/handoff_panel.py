@@ -28,6 +28,7 @@ class HandoffPanel(ttk.Frame):
         latest_closed = handoff.get("latest_closed_tranche", {})
         active_tranche = handoff.get("active_tranche", {})
         active_horizon = handoff.get("active_horizon", {})
+        horizon_label = active_horizon.get("label", "Next Horizon")
         lines = [
             "Latest Parked Tranche",
             json.dumps(latest_closed, indent=2),
@@ -35,7 +36,7 @@ class HandoffPanel(ttk.Frame):
             "Active Tranche",
             json.dumps(active_tranche, indent=2),
             "",
-            "Active Horizon",
+            horizon_label,
             json.dumps(active_horizon, indent=2),
             "",
             "Open Questions",

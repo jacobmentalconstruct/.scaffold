@@ -179,6 +179,9 @@ def boot(sidecar_root: Path | None = None,
     router.register("update_tranche", tranche_manager.handle_update_tranche, kind="manager")
     router.register("record_decision", tranche_manager.handle_record_decision, kind="manager")
     router.register("smoke_pass", tranche_manager.handle_smoke_pass, kind="manager")
+    router.register("request_tranche_review", closeout_orch.handle_request_tranche_review, kind="orchestrator")
+    router.register("return_tranche_review", closeout_orch.handle_return_tranche_review, kind="orchestrator")
+    router.register("approve_tranche_review", closeout_orch.handle_approve_tranche_review, kind="orchestrator")
     router.register("close_tranche", closeout_orch.handle_close_tranche, kind="orchestrator")
 
     # Discover and register tools from src/tools/.

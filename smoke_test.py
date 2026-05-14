@@ -920,7 +920,7 @@ def main() -> int:
     # Quick round-trip: declare a tranche, record a decision, check checklist updates.
     _section("51. T2.5: round-trip — declare tranche + record decision")
     try:
-        live_tranche = state.tranche_manager.get_active()
+        live_tranche = state.tranche_manager.get_current()
         if live_tranche and not live_tranche.title.startswith("T_SMOKE"):
             _ok(
                 f"live tranche already active ({live_tranche.title}) — "
@@ -1160,10 +1160,10 @@ def main() -> int:
             _ok("installed context: handoff latest_closed_tranche may be empty before the first local park")
         else:
             failures.append(_fail("handoff.latest_closed_tranche_json empty"))
-        if active_horizon.get("current"):
-            _ok("handoff.active_horizon is populated")
+        if active_horizon.get("current") and active_horizon.get("label") == "Next horizon":
+            _ok("handoff.active_horizon is populated with explicit Next horizon semantics")
         else:
-            failures.append(_fail("handoff.active_horizon_json empty"))
+            failures.append(_fail("handoff.active_horizon_json missing Next horizon semantics"))
         if "WE_ARE_HERE_NOW.md" in reading_order and "DEV_LOG.md" in reading_order:
             _ok("handoff.reading_order includes T4 continuity docs")
         else:
@@ -1334,10 +1334,17 @@ def main() -> int:
         _ok("installed context: WE_ARE_HERE_NOW.md can point at the current shipped baseline before local parks exist")
     else:
         failures.append(_fail("WE_ARE_HERE_NOW.md does not name the latest parked tranche"))
-    if "Active horizon:" in where_now_text and "Active horizon" in northstars_text:
-        _ok("handoff docs identify the next active horizon")
+    active_tranche_now = state.tranche_manager.get_current()
+    if active_tranche_now:
+        if "Current tranche:" in where_now_text and "Next horizon" in northstars_text:
+            _ok("handoff docs separate current tranche from next horizon")
+        else:
+            failures.append(_fail("handoff docs do not separate current tranche from next horizon"))
     else:
-        failures.append(_fail("handoff docs do not identify the next active horizon"))
+        if "Next horizon:" in where_now_text and "Active horizon:" not in where_now_text and "Next horizon" in northstars_text:
+            _ok("parked-state handoff docs use Next horizon wording")
+        else:
+            failures.append(_fail("parked-state handoff docs still use ambiguous Active horizon wording"))
     if "T4" in dev_log_text:
         _ok("DEV_LOG.md contains the T4 milestone entry")
     else:
@@ -2096,6 +2103,167 @@ def main() -> int:
         import traceback as _tb
         _tb.print_exc()
         failures.append(_fail(f"T9 Tk panel hydration failed: {e}"))
+
+    _section("84. T10: review-gate schema + handlers are live")
+    try:
+        review_table = state.store.query_one(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='tranche_review_packets';"
+        )
+        if review_table:
+            _ok("tranche_review_packets table exists")
+        else:
+            failures.append(_fail("tranche_review_packets table missing"))
+        handlers = state.router.handlers()
+        required_t10 = ("request_tranche_review", "return_tranche_review", "approve_tranche_review", "close_tranche")
+        missing = [name for name in required_t10 if name not in handlers]
+        if not missing:
+            _ok("T10 review-gate handlers registered")
+        else:
+            failures.append(_fail(f"T10 review-gate handlers missing: {missing}"))
+    except Exception as e:
+        failures.append(_fail(f"T10 review-gate schema/handler check failed: {e}"))
+
+    _section("85. T10: tranche_review_gate projection hydrates")
+    try:
+        review_projection = state.projections.refresh("tranche_review_gate")
+        row = _first_projection_row(review_projection.rows)
+        current_tranche = _json2.loads(row.get("current_tranche_json") or "{}")
+        allowed_actions = _json2.loads(row.get("allowed_actions_json") or "[]")
+        if current_tranche.get("title"):
+            _ok(f"tranche_review_gate current_tranche={current_tranche.get('title')}")
+        else:
+            failures.append(_fail("tranche_review_gate current_tranche_json empty"))
+        if isinstance(allowed_actions, list):
+            _ok(f"tranche_review_gate exposes allowed_actions={allowed_actions}")
+        else:
+            failures.append(_fail("tranche_review_gate allowed_actions_json malformed"))
+    except Exception as e:
+        failures.append(_fail(f"T10 tranche_review_gate projection failed: {e}"))
+
+    _section("86. T10: direct close is blocked before review approval")
+    review_tranche = state.tranche_manager.get_current()
+    review_exercised = False
+    if review_tranche and review_tranche.status == "active":
+        close_payload = state.blob_store.put_json({"extra_notes": "smoke direct-close rejection"})
+        close_env = SidecarEnvelope.new(
+            object_type="tranche",
+            actor_id="human:smoketest",
+            operation_intent="close_tranche",
+            payload_ref=close_payload,
+        )
+        close_result = state.router.dispatch(close_env)
+        if close_result.status in {"rejected", "failed"}:
+            _ok(f"close_tranche blocked while tranche is still active (status={close_result.status})")
+        else:
+            failures.append(_fail(f"close_tranche expected blocked before review approval, got {close_result.status}"))
+    else:
+        _ok("no active tranche available for direct-close rejection check")
+
+    _section("87. T10: request review -> return review round-trip works")
+    if review_tranche and review_tranche.status == "active":
+        smoke_payload = state.blob_store.put_json(
+            {
+                "test_name": "smoke_test.py",
+                "passed": True,
+                "details": "T10 review-gate smoke path",
+            }
+        )
+        smoke_env = SidecarEnvelope.new(
+            object_type="smoke_test",
+            actor_id="human:smoketest",
+            operation_intent="smoke_pass",
+            payload_ref=smoke_payload,
+        )
+        smoke_result = state.router.dispatch(smoke_env)
+        if smoke_result.status in ("accepted", "completed"):
+            _ok("recorded smoke PASS on the active tranche before requesting review")
+        else:
+            failures.append(_fail(f"smoke_pass before review request failed: {smoke_result.status}"))
+
+        request_env = SidecarEnvelope.new(
+            object_type="tranche_review",
+            actor_id="human:smoketest",
+            operation_intent="request_tranche_review",
+        )
+        request_result = state.router.dispatch(request_env)
+        if request_result.status in ("accepted", "completed"):
+            request_payload = state.blob_store.get_json(request_result.payload_ref) if request_result.payload_ref else {}
+            review_id = request_payload.get("review_id", "")
+            current_after_request = state.tranche_manager.get_current()
+            if current_after_request and current_after_request.status == "review_pending":
+                _ok(f"request_tranche_review moved tranche to review_pending (review_id={review_id})")
+            else:
+                failures.append(_fail("request_tranche_review did not move the tranche to review_pending"))
+            review_gate = state.projections.refresh("tranche_review_gate")
+            review_row = _first_projection_row(review_gate.rows)
+            latest_review = _json2.loads(review_row.get("latest_review_json") or "{}")
+            if latest_review.get("review_id") == review_id:
+                _ok("tranche_review_gate latest_review matches the requested review packet")
+            else:
+                failures.append(_fail("tranche_review_gate latest_review does not match requested review packet"))
+
+            return_payload = state.blob_store.put_json(
+                {
+                    "review_id": review_id,
+                    "return_reason": "smoke review return for T10 gate coverage",
+                }
+            )
+            return_env = SidecarEnvelope.new(
+                object_type="tranche_review",
+                actor_id="human:smoketest",
+                operation_intent="return_tranche_review",
+                payload_ref=return_payload,
+            )
+            return_result = state.router.dispatch(return_env)
+            if return_result.status in ("accepted", "completed"):
+                current_after_return = state.tranche_manager.get_current()
+                if current_after_return and current_after_return.status == "active":
+                    _ok("return_tranche_review reopened the same tranche as active")
+                else:
+                    failures.append(_fail("return_tranche_review did not reopen the tranche as active"))
+                questions = current_after_return.open_questions if current_after_return else []
+                if any("smoke review return for T10 gate coverage" in (item.get("question", "") if isinstance(item, dict) else str(item)) for item in questions):
+                    _ok("returned review feedback was appended into tranche carry-forward questions")
+                else:
+                    failures.append(_fail("returned review feedback missing from tranche carry-forward questions"))
+                review_exercised = True
+            else:
+                failures.append(_fail(f"return_tranche_review status={return_result.status}"))
+        else:
+            failures.append(_fail(f"request_tranche_review status={request_result.status}"))
+    else:
+        _ok("review round-trip skipped because there is no active tranche to submit")
+
+    _section("88. T10: Tranche Review Tk panel hydrates")
+    try:
+        import tkinter as _tk
+        from src.ui.tranche_review_panel import TrancheReviewPanel
+
+        review_projection = state.projections.refresh("tranche_review_gate")
+        review_row = _first_projection_row(review_projection.rows)
+        root = _tk.Tk()
+        root.withdraw()
+        panel = TrancheReviewPanel(root, state)
+        panel.refresh(
+            {
+                "tranche_review_gate": {
+                    "current_tranche": _json2.loads(review_row.get("current_tranche_json") or "{}"),
+                    "latest_review": _json2.loads(review_row.get("latest_review_json") or "{}"),
+                    "history": _json2.loads(review_row.get("history_json") or "[]"),
+                    "allowed_actions": _json2.loads(review_row.get("allowed_actions_json") or "[]"),
+                    "park_phase_allowed": bool(review_row.get("park_phase_allowed") or 0),
+                },
+                "default_operator_actor": "human:smoketest",
+            }
+        )
+        root.update_idletasks()
+        root.update()
+        root.destroy()
+        _ok(f"TrancheReviewPanel hydrated from tranche_review_gate: {type(panel).__name__}")
+    except Exception as e:
+        import traceback as _tb
+        _tb.print_exc()
+        failures.append(_fail(f"T10 Tk tranche review panel failed to initialize: {e}"))
 
     _section("RESULT")
     if failures:

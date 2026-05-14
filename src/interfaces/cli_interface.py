@@ -278,6 +278,31 @@ def _build_parser() -> argparse.ArgumentParser:
                       help="Max tokens the model may generate (default: 8192). "
                            "Lower values reduce GPU memory pressure.")
 
+    p_trr = sub.add_parser("tranche-review-request", help="Generate the mechanical review packet and move the tranche to review_pending.")
+    p_trr.add_argument("--actor", required=True, help="Actor id.")
+
+    p_trshow = sub.add_parser("tranche-review-show", help="Show the latest tranche review packet for the current open tranche.")
+    p_trshow.add_argument("--review-id", default="", help="Optional review id.")
+
+    p_trret = sub.add_parser("tranche-review-return", help="Return a pending tranche review to the agent and reopen the same tranche.")
+    p_trret.add_argument("--actor", required=True, help="Human actor id.")
+    p_trret.add_argument("--review-id", default="", help="Optional review id.")
+    p_trret.add_argument("--reason", required=True, help="Return reason / feedback for the agent.")
+
+    p_trapp = sub.add_parser("tranche-review-approve", help="Approve a pending tranche review and immediately run Park Phase closeout.")
+    p_trapp.add_argument("--actor", required=True, help="Human actor id.")
+    p_trapp.add_argument("--review-id", default="", help="Optional review id.")
+    p_trapp.add_argument("--approval-notes", default="", help="Optional human approval notes.")
+    p_trapp.add_argument("--skip-smoke-check", action="store_true",
+                         help="Skip the smoke-test-passed gate while closing.")
+    p_trapp.add_argument("--extra-notes", default="", help="Freeform text appended to park notes.")
+    p_trapp.add_argument("--with-ollama", action="store_true",
+                         help="Use a local Ollama model to generate prose park notes during close.")
+    p_trapp.add_argument("--ollama-model", default="qwen3.5:9b",
+                         help="Ollama model name (default: qwen3.5:9b).")
+    p_trapp.add_argument("--ollama-num-predict", type=int, default=8192,
+                         help="Max tokens the model may generate (default: 8192).")
+
     p_tsp = sub.add_parser("tranche-smoke-pass", help="Record a smoke test PASS for the active tranche.")
     p_tsp.add_argument("--actor", required=True, help="Actor id.")
     p_tsp.add_argument("--test-name", default="smoke_test.py", help="Test name.")
@@ -1075,10 +1100,11 @@ def _cmd_tranche_declare(state, args) -> int:
 
 
 def _cmd_tranche_status(state, args) -> int:
-    tranche = state.tranche_manager.get_active()
+    tranche = state.tranche_manager.get_current()
     checklist = state.tranche_manager.build_checklist(state)
+    latest_review = state.tranche_manager.get_latest_review(tranche.tranche_id) if tranche else None
     _print_json({
-        "active_tranche": {
+        "current_tranche": {
             "tranche_id": tranche.tranche_id,
             "title": tranche.title,
             "status": tranche.status,
@@ -1087,7 +1113,10 @@ def _cmd_tranche_status(state, args) -> int:
             "files_changed_count": len(tranche.files_changed),
             "tests_run_count": len(tranche.tests_run),
             "scope_preview": tranche.declared_scope[:120],
+            "current_review_id": tranche.current_review_id,
+            "last_review_status": tranche.last_review_status,
         } if tranche else None,
+        "latest_review": _review_to_dict(latest_review) if latest_review else None,
         "checklist": [
             {
                 "item_id": c.item_id,
@@ -1105,6 +1134,151 @@ def _cmd_tranche_status(state, args) -> int:
         ),
     })
     return 0
+
+
+def _cmd_tranche_review_request(state, args) -> int:
+    envelope = SidecarEnvelope.new(
+        object_type="tranche_review",
+        actor_id=args.actor,
+        operation_intent="request_tranche_review",
+    )
+    result = state.router.dispatch(envelope)
+    response = {}
+    if result.payload_ref:
+        try:
+            response = state.blob_store.get_json(result.payload_ref)
+        except Exception:
+            pass
+    _print_json({
+        "status": result.status,
+        "review": response,
+    })
+    return 0 if result.status in ("accepted", "completed") else 1
+
+
+def _cmd_tranche_review_show(state, args) -> int:
+    tranche = state.tranche_manager.get_current()
+    review = None
+    history = []
+    if tranche:
+        history = [_review_to_dict(item) for item in state.tranche_manager.list_reviews(tranche.tranche_id, limit=10)]
+        if args.review_id:
+            review = next((item for item in history if item.get("review_id") == args.review_id), None)
+        else:
+            latest = state.tranche_manager.get_latest_review(tranche.tranche_id)
+            review = _review_to_dict(latest) if latest else None
+    packet_json = {}
+    packet_markdown = ""
+    if review:
+        try:
+            packet_json = state.blob_store.get_json(review.get("review_packet_json_ref", ""))
+        except Exception:
+            packet_json = {}
+        try:
+            packet_markdown = state.blob_store.get_text(review.get("review_packet_markdown_ref", ""))
+        except Exception:
+            packet_markdown = ""
+    _print_json({
+        "current_tranche": {
+            "tranche_id": tranche.tranche_id,
+            "title": tranche.title,
+            "status": tranche.status,
+            "current_review_id": tranche.current_review_id,
+        } if tranche else None,
+        "latest_review": review,
+        "packet_json": packet_json,
+        "packet_markdown": packet_markdown,
+        "history": history,
+    })
+    return 0
+
+
+def _cmd_tranche_review_return(state, args) -> int:
+    payload_ref = state.blob_store.put_json(
+        {
+            "review_id": args.review_id or "",
+            "return_reason": args.reason,
+        }
+    )
+    envelope = SidecarEnvelope.new(
+        object_type="tranche_review",
+        actor_id=args.actor,
+        operation_intent="return_tranche_review",
+        payload_ref=payload_ref,
+    )
+    result = state.router.dispatch(envelope)
+    response = {}
+    if result.payload_ref:
+        try:
+            response = state.blob_store.get_json(result.payload_ref)
+        except Exception:
+            pass
+    _print_json({
+        "status": result.status,
+        "review": response,
+    })
+    return 0 if result.status in ("accepted", "completed") else 1
+
+
+def _cmd_tranche_review_approve(state, args) -> int:
+    approve_payload_ref = state.blob_store.put_json(
+        {
+            "review_id": args.review_id or "",
+            "approval_notes": args.approval_notes,
+        }
+    )
+    approve_env = SidecarEnvelope.new(
+        object_type="tranche_review",
+        actor_id=args.actor,
+        operation_intent="approve_tranche_review",
+        payload_ref=approve_payload_ref,
+    )
+    approve_result = state.router.dispatch(approve_env)
+    approve_response = {}
+    if approve_result.payload_ref:
+        try:
+            approve_response = state.blob_store.get_json(approve_result.payload_ref)
+        except Exception:
+            pass
+    if approve_result.status not in ("accepted", "completed"):
+        _print_json({"status": approve_result.status, "approval": approve_response})
+        return 1
+
+    close_payload_ref = state.blob_store.put_json(
+        {
+            "skip_smoke_check": bool(args.skip_smoke_check),
+            "extra_notes": args.extra_notes,
+            "use_ollama": bool(getattr(args, "with_ollama", False)),
+            "ollama_model": getattr(args, "ollama_model", "qwen3.5:9b"),
+            "ollama_num_predict": getattr(args, "ollama_num_predict", 8192),
+        }
+    )
+    close_env = SidecarEnvelope.new(
+        object_type="tranche",
+        actor_id=args.actor,
+        operation_intent="close_tranche",
+        payload_ref=close_payload_ref,
+    )
+    close_result = state.router.dispatch(close_env)
+    close_response = {}
+    if close_result.payload_ref:
+        try:
+            close_response = state.blob_store.get_json(close_result.payload_ref)
+        except Exception:
+            pass
+    _print_json(
+        {
+            "approval": {
+                "status": approve_result.status,
+                "response": approve_response,
+            },
+            "closeout": {
+                "status": close_result.status,
+                "response": close_response,
+            },
+        }
+    )
+    return 0 if close_result.status in ("accepted", "completed") else 1
 
 
 def _cmd_tranche_update(state, args) -> int:
@@ -1258,7 +1432,7 @@ def _cmd_decision_record(state, args) -> int:
 
 
 def _cmd_decision_list(state, args) -> int:
-    tranche = state.tranche_manager.get_active()
+    tranche = state.tranche_manager.get_current()
     tranche_id = tranche.tranche_id if tranche else None
     decisions = state.tranche_manager.get_decisions(tranche_id)
     _print_json({
@@ -1331,6 +1505,10 @@ _COMMANDS = {
     # T2.5 Active Tranche Ledger
     "tranche-declare": _cmd_tranche_declare,
     "tranche-status": _cmd_tranche_status,
+    "tranche-review-request": _cmd_tranche_review_request,
+    "tranche-review-show": _cmd_tranche_review_show,
+    "tranche-review-return": _cmd_tranche_review_return,
+    "tranche-review-approve": _cmd_tranche_review_approve,
     "tranche-update": _cmd_tranche_update,
     "tranche-close": _cmd_tranche_close,
     "tranche-smoke-pass": _cmd_tranche_smoke_pass,
@@ -1372,6 +1550,27 @@ def _run_to_dict(run) -> dict:
         "approval_grant_id": run.approval_grant_id,
         "config_snapshot": run.config_snapshot,
         "metadata": run.metadata,
+    }
+
+
+def _review_to_dict(review) -> dict:
+    return {
+        "review_id": review.review_id,
+        "tranche_id": review.tranche_id,
+        "status": review.status,
+        "generated_at": review.generated_at,
+        "generated_by_actor": review.generated_by_actor,
+        "review_packet_json_ref": review.review_packet_json_ref,
+        "review_packet_markdown_ref": review.review_packet_markdown_ref,
+        "smoke_snapshot": review.smoke_snapshot,
+        "latest_decision_ids": review.latest_decision_ids,
+        "latest_test_records": review.latest_test_records,
+        "reviewed_by_actor": review.reviewed_by_actor,
+        "reviewed_at": review.reviewed_at,
+        "return_reason": review.return_reason,
+        "approval_notes": review.approval_notes,
+        "event_id": review.event_id,
+        "metadata": review.metadata,
     }
 
 

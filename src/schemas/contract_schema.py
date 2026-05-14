@@ -138,6 +138,9 @@ INTENT_REQUIRED_AUTHORITY: dict[str, str] = {
     "request_authority_elevation": "Propose",
     "approve_authority_request": "Apply",
     "reject_authority_request": "Apply",
+    "request_tranche_review": "Propose",
+    "return_tranche_review": "Apply",
+    "approve_tranche_review": "Apply",
 
     # constraint registry
     "register_constraint": "Apply",

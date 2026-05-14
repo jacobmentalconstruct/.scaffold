@@ -64,6 +64,7 @@ class ProjectionManager:
         self._builders["runtime_cockpit"] = self._build_runtime_cockpit
         self._builders["training_runway"] = self._build_training_runway
         self._builders["installed_project_proof"] = self._build_installed_project_proof
+        self._builders["tranche_review_gate"] = self._build_tranche_review_gate
         # Stub builders for other projections (just stamp the timestamp).
         for name in PROJECTION_NAMES:
             if name not in self._builders:
@@ -602,7 +603,7 @@ class ProjectionManager:
         if roadmap_path.is_file():
             roadmap_text = roadmap_path.read_text(encoding="utf-8")
             source_plan_hash = hashlib.sha256(roadmap_text.encode("utf-8")).hexdigest()
-            current_tranche_scope, next_planned_steps, active_goals = _parse_roadmap(roadmap_text)
+            current_tranche_scope, next_planned_steps, active_goals, _next_horizon = _parse_roadmap(roadmap_text)
 
         # Open questions parsed from ARCHITECTURE.md §15 "Still open" section.
         open_questions: list[str] = []
@@ -704,8 +705,8 @@ class ProjectionManager:
 
         current_scan = self._state.project_index_manager.latest_scan() if self._state.project_index_manager else None
         current_git = self._state.git_state_manager.latest() if self._state.git_state_manager else None
-        active_tranche = getattr(self._state, "tranche_manager", None)
-        active_tranche = active_tranche.get_active() if active_tranche else None
+        tranche_manager = getattr(self._state, "tranche_manager", None)
+        active_tranche = tranche_manager.get_current() if tranche_manager else None
 
         ack_row = self._store.query_one("SELECT COUNT(*) AS n FROM acknowledgments;")
         tool_count = self._state.tool_registry_manager.count() if self._state.tool_registry_manager else 0
@@ -855,15 +856,34 @@ class ProjectionManager:
         next_planned_steps: list[str] = []
         active_goals: list[str] = []
         source_plan_hash = ""
+        roadmap_next_horizon: dict[str, Any] = {}
         roadmap_path = sidecar_root / "IMPLEMENTATION_ROADMAP.md"
         if roadmap_path.is_file():
             roadmap_text = roadmap_path.read_text(encoding="utf-8")
-            current_tranche_scope, next_planned_steps, active_goals = _parse_roadmap(roadmap_text)
+            current_tranche_scope, next_planned_steps, active_goals, roadmap_next_horizon = _parse_roadmap(roadmap_text)
             import hashlib as _hashlib
             source_plan_hash = _hashlib.sha256(roadmap_text.encode("utf-8")).hexdigest()
 
         arch_path = sidecar_root / "ARCHITECTURE.md"
         open_questions = _parse_open_questions(arch_path.read_text(encoding="utf-8")) if arch_path.is_file() else []
+
+        if active_tranche:
+            current_tranche_scope = {
+                "tranche_id": active_tranche.tranche_id,
+                "title": active_tranche.title,
+                "status": active_tranche.status,
+                "scope": active_tranche.declared_scope,
+                "non_goals": active_tranche.declared_non_goals,
+                "completion_criteria": active_tranche.declared_completion_criteria,
+                "current_review_id": active_tranche.current_review_id,
+                "last_review_status": active_tranche.last_review_status,
+            }
+        horizon_payload = {
+            "label": "Next horizon",
+            "current": roadmap_next_horizon if active_tranche and roadmap_next_horizon else current_tranche_scope,
+            "next_steps": next_planned_steps if not active_tranche else [],
+            "active_goals": active_goals if not active_tranche else [],
+        }
 
         open_todos = [
             {
@@ -911,6 +931,7 @@ class ProjectionManager:
                 {"id": "evidence", "label": "Evidence", "count": evidence_count},
                 {"id": "projmap", "label": "Project Map", "count": int(paths.get("indexed_path_count", 0))},
                 {"id": "contracts", "label": "Contracts", "count": contract_unit_count},
+                {"id": "tranchereview", "label": "Tranche Review", "count": 1 if active_tranche else 0},
                 {"id": "localagent", "label": "Local Agent", "count": 1},
                 {"id": "training", "label": "Training Runway", "count": 1},
                 {"id": "handoff", "label": "Handoff", "count": 1},
@@ -960,9 +981,12 @@ class ProjectionManager:
             "active_tranche": {
                 "tranche_id": active_tranche.tranche_id,
                 "title": active_tranche.title,
+                "status": active_tranche.status,
                 "started_at": active_tranche.started_at,
                 "decisions_count": active_tranche.decisions_count,
                 "tests_run_count": len(active_tranche.tests_run),
+                "current_review_id": active_tranche.current_review_id,
+                "last_review_status": active_tranche.last_review_status,
             } if active_tranche else {},
             "current_agent": current_agent,
             "agent_sessions": [
@@ -984,7 +1008,8 @@ class ProjectionManager:
 
         future = {
             "drift_checks": drift_checks,
-            "current_tranche_scope": current_tranche_scope,
+            "current_tranche_scope": current_tranche_scope if active_tranche else {},
+            "next_horizon": horizon_payload,
             "next_planned_steps": next_planned_steps,
             "active_goals": active_goals,
             "open_questions": open_questions,
@@ -1029,7 +1054,8 @@ class ProjectionManager:
 
     def _build_handoff(self) -> None:
         ts = now_iso()
-        active_tranche = self._state.tranche_manager.get_active() if getattr(self._state, "tranche_manager", None) else None
+        tranche_manager = getattr(self._state, "tranche_manager", None)
+        active_tranche = tranche_manager.get_current() if tranche_manager else None
         latest_closed = None
         if self._state.journal_manager:
             closed = self._state.journal_manager.query(kind="tranche", status="closed", limit=1)
@@ -1047,9 +1073,10 @@ class ProjectionManager:
         roadmap_path = sidecar_root / "IMPLEMENTATION_ROADMAP.md"
         if roadmap_path.is_file():
             roadmap_text = roadmap_path.read_text(encoding="utf-8")
-        active_horizon, next_steps, active_goals = _parse_roadmap(roadmap_text) if roadmap_text else ({}, [], [])
+        current_scope, next_steps, active_goals, roadmap_next_horizon = _parse_roadmap(roadmap_text) if roadmap_text else ({}, [], [], {})
         arch_path = sidecar_root / "ARCHITECTURE.md"
         open_questions = _parse_open_questions(arch_path.read_text(encoding="utf-8")) if arch_path.is_file() else []
+        handoff_horizon = roadmap_next_horizon if active_tranche and roadmap_next_horizon else current_scope
 
         reading_order = [
             "ONBOARDING.md",
@@ -1068,6 +1095,7 @@ class ProjectionManager:
             "python smoke_test.py",
             "python -m src.app cli projection handoff",
             "python -m src.app cli projection agent_bootstrap",
+            "python -m src.app cli projection tranche_review_gate",
             "python -m src.app cli projection runtime_cockpit",
             "python -m src.app cli projection training_runway",
             "python -m src.app cli projection installed_project_proof",
@@ -1096,14 +1124,98 @@ class ProjectionManager:
                 ),
                 safe_json_dumps(
                     {
-                        "current": active_horizon,
-                        "next_steps": next_steps,
-                        "active_goals": active_goals,
+                        "label": "Next horizon",
+                        "current": handoff_horizon,
+                        "next_steps": next_steps if not active_tranche else [],
+                        "active_goals": active_goals if not active_tranche else [],
                     }
                 ),
                 safe_json_dumps(open_questions),
                 safe_json_dumps(reading_order),
                 safe_json_dumps(verification_commands),
+                ts,
+            ),
+        )
+
+    def _build_tranche_review_gate(self) -> None:
+        ts = now_iso()
+        tranche_manager = getattr(self._state, "tranche_manager", None)
+        tranche = tranche_manager.get_current() if tranche_manager else None
+        latest_review = None
+        history = []
+        allowed_actions = []
+        park_phase_allowed = 0
+
+        if tranche_manager and tranche:
+            latest_review = tranche_manager.get_latest_review(tranche.tranche_id)
+            history = [
+                {
+                    "review_id": review.review_id,
+                    "status": review.status,
+                    "generated_at": review.generated_at,
+                    "generated_by_actor": review.generated_by_actor,
+                    "reviewed_by_actor": review.reviewed_by_actor,
+                    "reviewed_at": review.reviewed_at,
+                    "return_reason": review.return_reason,
+                    "approval_notes": review.approval_notes,
+                    "event_id": review.event_id,
+                    "metadata": review.metadata,
+                }
+                for review in tranche_manager.list_reviews(tranche.tranche_id, limit=8)
+            ]
+            if tranche.status == "active":
+                allowed_actions = ["request_tranche_review"]
+            elif tranche.status == "review_pending":
+                allowed_actions = ["approve_tranche_review", "return_tranche_review"]
+            elif tranche.status == "review_approved":
+                allowed_actions = ["close_tranche"]
+                park_phase_allowed = 1
+
+        self._store.execute("DELETE FROM proj_tranche_review_gate;")
+        self._store.execute(
+            """
+            INSERT OR REPLACE INTO proj_tranche_review_gate(
+                id, current_tranche_json, latest_review_json, history_json,
+                allowed_actions_json, park_phase_allowed, last_refreshed_at
+            ) VALUES (1, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                safe_json_dumps(
+                    {
+                        "tranche_id": tranche.tranche_id,
+                        "title": tranche.title,
+                        "status": tranche.status,
+                        "started_at": tranche.started_at,
+                        "declared_scope": tranche.declared_scope,
+                        "declared_non_goals": tranche.declared_non_goals,
+                        "declared_completion_criteria": tranche.declared_completion_criteria,
+                        "current_review_id": tranche.current_review_id,
+                        "last_review_status": tranche.last_review_status,
+                        "last_reviewed_at": tranche.last_reviewed_at,
+                    } if tranche else {}
+                ),
+                safe_json_dumps(
+                    {
+                        "review_id": latest_review.review_id,
+                        "status": latest_review.status,
+                        "generated_at": latest_review.generated_at,
+                        "generated_by_actor": latest_review.generated_by_actor,
+                        "reviewed_by_actor": latest_review.reviewed_by_actor,
+                        "reviewed_at": latest_review.reviewed_at,
+                        "return_reason": latest_review.return_reason,
+                        "approval_notes": latest_review.approval_notes,
+                        "event_id": latest_review.event_id,
+                        "review_packet_json_ref": latest_review.review_packet_json_ref,
+                        "review_packet_markdown_ref": latest_review.review_packet_markdown_ref,
+                        "smoke_snapshot": latest_review.smoke_snapshot,
+                        "latest_decision_ids": latest_review.latest_decision_ids,
+                        "latest_test_records": latest_review.latest_test_records,
+                        "metadata": latest_review.metadata,
+                    } if latest_review else {}
+                ),
+                safe_json_dumps(history),
+                safe_json_dumps(allowed_actions),
+                park_phase_allowed,
                 ts,
             ),
         )
@@ -1261,8 +1373,8 @@ class ProjectionManager:
 # smoke-test-visible drift signal.
 # ---------------------------------------------------------------------------
 
-def _parse_roadmap(text: str) -> tuple[dict, list, list]:
-    """Return (current_tranche_scope, next_planned_steps, active_goals).
+def _parse_roadmap(text: str) -> tuple[dict, list, list, dict]:
+    """Return (current_tranche_scope, next_planned_steps, active_goals, next_horizon).
 
     Identifies the next "Tranche N" heading that does NOT contain "✓ COMPLETE",
     extracts its Scope / Files / Non-goals / Completion criteria subsections.
@@ -1289,7 +1401,7 @@ def _parse_roadmap(text: str) -> tuple[dict, list, list]:
             upcoming.append({"tranche": f"T{num}", "title": title})
 
     if current_match is None:
-        return ({}, [], [])
+        return ({}, [], [], {})
 
     m, num, title, idx = current_match
     section_start = m.end()
@@ -1354,7 +1466,8 @@ def _parse_roadmap(text: str) -> tuple[dict, list, list]:
             if line and len(line) < 300:
                 active_goals.append(line)
 
-    return (current_tranche_scope, next_steps[:30], active_goals[:20])
+    next_horizon = upcoming[0] if upcoming else {}
+    return (current_tranche_scope, next_steps[:30], active_goals[:20], next_horizon)
 
 
 def _parse_open_questions(arch_text: str) -> list[str]:
@@ -1496,8 +1609,11 @@ def _build_drift_checks(state: "SidecarState", tool_count: int) -> list[dict]:
         where_now = (sidecar_root / "WE_ARE_HERE_NOW.md").read_text(encoding="utf-8")
         dev_log = (sidecar_root / "DEV_LOG.md").read_text(encoding="utf-8")
         northstars = (sidecar_root / "NORTHSTARS.md").read_text(encoding="utf-8")
+        active_tranche = state.tranche_manager.get_current() if getattr(state, "tranche_manager", None) else None
+        horizon_phrase = "Current tranche:" if active_tranche else "Next horizon:"
         handoff_docs_ok = (
-            "Active horizon" in northstars
+            horizon_phrase in where_now
+            and "Next horizon" in northstars
             and latest_tranche_title in where_now
             and "T4" in dev_log
         )
@@ -1507,7 +1623,7 @@ def _build_drift_checks(state: "SidecarState", tool_count: int) -> list[dict]:
     checks.append({
         "id": "handoff_docs",
         "ok": handoff_docs_ok,
-        "label": "Cold-team handoff docs align with latest parked tranche",
+        "label": "Cold-team handoff docs align with latest parked tranche and horizon semantics",
     })
     return checks
 

@@ -274,19 +274,36 @@ When the sidecar is first dropped into a new project, the **Setup Phase** must c
 
 The discipline is "setup before features." A fresh agent connecting to a freshly-installed sidecar must complete the acknowledgment step (via `journal_acknowledge` tool) before any other operation than `Observe` is permitted.
 
-### 12.2 Park Phase (tranche closeout) — EXPLICIT and MECHANICALLY ENFORCED
+### 12.2 Review Gate + Park Phase (tranche closeout) — EXPLICIT and MECHANICALLY ENFORCED
 
-When a tranche of meaningful work completes, the **Park Phase** produces a structured *parking record* that allows the next session (human or agent) to resume cleanly. **The phase is not optional and is not "ritual we remember in conversation"** — it is codified in this section, bound by `contracts/builder_constraint_contract.md §D`, and mechanically enforced by `smoke_test.py` drift-detection sections that fail when any continuity doc is stale.
+When a tranche of meaningful work completes, the sidecar now requires a **Review Gate** before the **Park Phase** produces the final structured parking record that allows the next session (human or agent) to resume cleanly. **This is not optional and is not "ritual we remember in conversation"** — it is codified in this section, bound by `contracts/builder_constraint_contract.md §D`, and mechanically enforced by `smoke_test.py` drift-detection sections that fail when continuity or wording drifts.
 
-#### The seven steps
+#### The two-stage close
+
+1. **Review Gate**
+   - `request_tranche_review` compiles a mechanical review packet from the active tranche ledger, decisions, tests, runtime trace, touched paths, and handoff state.
+   - The tranche moves `active -> review_pending`.
+   - A human explicitly chooses either:
+     - `return_tranche_review` → same tranche reopens as `active`, or
+     - `approve_tranche_review` → tranche moves to `review_approved`.
+   - `close_tranche` is blocked until review approval exists.
+
+2. **Park Phase**
+   - Once review is approved, Park Phase writes the normal sealed artifacts without changing the required artifact set.
+
+#### The nine steps
 
 1. **Inspect.** Gather metrics for the tranche: files added/modified, lines, new tables, new handlers, new tools, new projection builders, schema migration applied. State and host-project deltas since tranche open.
 
-2. **Verify.** Run `python smoke_test.py`. All sections must PASS before proceeding. If any fail, fix and re-run; do not proceed with Park Phase until verification is green.
+2. **Verify.** Run `python smoke_test.py`. All sections must PASS before requesting review. If any fail, fix and re-run; do not proceed with Review Gate or Park Phase until verification is green.
 
-3. **Capture.** Write `_docs/T_n_PARK_NOTES.md` (code-time mirror) capturing the inspect output, decisions made at code time, files touched, proving-loop status. Put the file's bytes in `blob_store` via `state.blob_store.put`; record the SHA-256 hash and the post-capture Merkle root.
+3. **Request review.** Generate the mechanical review packet, surface it in CLI/Tk/projections, and move the tranche to `review_pending`.
 
-4. **Journal.** Dispatch a `create_journal_entry` envelope with:
+4. **Human decision.** A human explicitly either returns the tranche to the agent with notes or approves Park Phase. Returned review reopens the **same tranche**; approval moves it to `review_approved`.
+
+5. **Capture.** Write `_docs/T_n_PARK_NOTES.md` (code-time mirror) capturing the inspect output, decisions made at code time, files touched, proving-loop status. Put the file's bytes in `blob_store` via `state.blob_store.put`; record the SHA-256 hash and the post-capture Merkle root.
+
+6. **Journal.** Dispatch a `create_journal_entry` envelope with:
     - `kind='tranche'`
     - title `"T_n <subject> — COMPLETE"`
     - body from `_docs/T_n_PARK_NOTES.md`
@@ -295,10 +312,10 @@ When a tranche of meaningful work completes, the **Park Phase** produces a struc
     - importance ≥ 8
     - `related_path` pointing at the park notes file.
 
-5. **Update continuity docs (explicit checklist).** Every item below must be touched, otherwise smoke test drift-detection (step 6) will fail:
+7. **Update continuity docs (explicit checklist).** Every item below must be touched, otherwise smoke test drift-detection (step 8) will fail:
     - **`ONBOARDING.md`** — reading order and verification commands reflect current surfaces.
-    - **`WE_ARE_HERE_NOW.md`** — fast pickup note reflects the latest parked tranche and active horizon.
-    - **`NORTHSTARS.md`** — satisfied substrate capabilities and active horizons updated.
+    - **`WE_ARE_HERE_NOW.md`** — fast pickup note reflects the latest parked tranche, any current tranche, and the next horizon with unambiguous wording.
+    - **`NORTHSTARS.md`** — satisfied substrate capabilities and next horizons updated.
     - **`DEV_LOG.md`** — append-only milestone narrative extended for the tranche.
     - **`IMPLEMENTATION_ROADMAP.md`** — mark the tranche `✓ COMPLETE` with metrics + evidence hash + the tranche journal entry's uid + the `task_completed` event id.
     - **`SOURCE_PROVENANCE.md`** — append a dated entry distinguishing original code from structurally-borrowed patterns; cite evidence hashes; record the new journal entry uid.
@@ -308,10 +325,10 @@ When a tranche of meaningful work completes, the **Park Phase** produces a struc
     - **`README.md`** — update the top-level status header if it references a prior tranche. The header must reflect current state.
     - Any other doc with a status banner referencing a prior tranche.
 
-6. **Re-verify.** Run `python smoke_test.py` again. The drift-detection sections (introduced 2026-05-11) verify mechanically that step 5 was performed:
-    - `WE_ARE_HERE_NOW.md` exists and names the latest parked tranche + active horizon.
+8. **Re-verify.** Run `python smoke_test.py` again. The drift-detection sections verify mechanically that step 7 was performed:
+    - `WE_ARE_HERE_NOW.md` exists and names the latest parked tranche plus either the current tranche or the next horizon, depending on lifecycle state.
     - `DEV_LOG.md` exists and contains an entry for the latest closed tranche.
-    - `NORTHSTARS.md` exists and reflects the current active horizon.
+    - `NORTHSTARS.md` exists and reflects the current next horizon.
     - `TOOLS.md` row count equals `tool_registry` count.
     - `README.md` status header does not name a prior tranche as current.
     - `ARCHITECTURE.md §15` has `Resolved at T_n` for every completed tranche.
@@ -320,7 +337,7 @@ When a tranche of meaningful work completes, the **Park Phase** produces a struc
 
    If smoke test fails, the tranche is NOT parked. Fix and repeat from step 5.
 
-7. **Report and close.** In the spine, dispatch in order:
+9. **Report and close.** In the spine, dispatch in order:
     - `accept_task` envelope marking the tranche lifecycle (informational).
     - `complete_task` envelope (correlated to the above by `correlation_id`).
     - `close_journal_entry` envelope for the tranche entry written in step 4, moving its status from `'open'` → `'closed'`. The tranche entry CONTENT is immutable per Journal Doctrine §13.1; the status change is a non-destructive lifecycle update.

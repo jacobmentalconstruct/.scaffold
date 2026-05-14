@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
 from src.lib.common import now_iso
@@ -23,6 +23,7 @@ from src.ui.journal_panel import JournalPanel
 from src.ui.local_agent_panel import LocalAgentPanel
 from src.ui.project_map_panel import ProjectMapPanel
 from src.ui.state_panel import StatePanel
+from src.ui.tranche_review_panel import TrancheReviewPanel
 from src.ui.training_runway_panel import TrainingRunwayPanel
 
 
@@ -147,6 +148,7 @@ class DashboardView(ttk.Frame):
         past = viewport.get("past", {})
         present = viewport.get("present", {})
         future = viewport.get("future", {})
+        next_horizon = future.get("next_horizon", {})
 
         _replace_tree(
             self._journal_tree,
@@ -222,6 +224,9 @@ class DashboardView(ttk.Frame):
             "Current Tranche Scope",
             json.dumps(future.get("current_tranche_scope", {}), indent=2),
             "",
+            next_horizon.get("label", "Next Horizon"),
+            json.dumps(next_horizon.get("current", {}), indent=2),
+            "",
             "Next Planned Steps",
             *[f"- {line}" for line in future.get("next_planned_steps", [])],
             "",
@@ -256,6 +261,7 @@ class MonitoringConsole(ttk.Frame):
         self._tab_ids: dict[str, str] = {}
         self._refresh_after_id: str | None = None
         self._closed = False
+        self._prompted_review_id = ""
 
         self.master.title(".scaffold — Tk Operator Console")
         self.master.geometry("1680x1020")
@@ -329,6 +335,7 @@ class MonitoringConsole(ttk.Frame):
         self._evidence_panel = EvidencePanel(self._notebook, self.state)
         self._project_map_panel = ProjectMapPanel(self._notebook)
         self._contracts_panel = ContractsPanel(self._notebook, self.state)
+        self._tranche_review_panel = TrancheReviewPanel(self._notebook, self.state)
         self._local_agent_panel = LocalAgentPanel(self._notebook, self.state)
         self._training_panel = TrainingRunwayPanel(self._notebook, self.state)
         self._installed_proof_panel = InstalledProjectProofPanel(self._notebook, self.state)
@@ -340,6 +347,7 @@ class MonitoringConsole(ttk.Frame):
         self._add_tab("evidence", "Evidence", self._evidence_panel)
         self._add_tab("projmap", "Project Map", self._project_map_panel)
         self._add_tab("contracts", "Contracts", self._contracts_panel)
+        self._add_tab("tranchereview", "Tranche Review", self._tranche_review_panel)
         self._add_tab("localagent", "Local Agent", self._local_agent_panel)
         self._add_tab("training", "Training Runway", self._training_panel)
         self._add_tab("installedproof", "Installed Proof", self._installed_proof_panel)
@@ -400,6 +408,7 @@ class MonitoringConsole(ttk.Frame):
         self.state.projections.refresh("handoff")
         self.state.projections.refresh("training_runway")
         self.state.projections.refresh("installed_project_proof")
+        self.state.projections.refresh("tranche_review_gate")
 
         viewport_row = _first_row(self.state.projections.read("viewport_state").rows)
         current_state_row = _first_row(self.state.projections.read("current_sidecar_state").rows)
@@ -413,6 +422,7 @@ class MonitoringConsole(ttk.Frame):
         runtime_cockpit_row = _first_row(self.state.projections.read("runtime_cockpit").rows)
         training_runway_row = _first_row(self.state.projections.read("training_runway").rows)
         installed_project_proof_row = _first_row(self.state.projections.read("installed_project_proof").rows)
+        tranche_review_row = _first_row(self.state.projections.read("tranche_review_gate").rows)
 
         contract_text = ""
         blob_ref = (self.state.current_contract or {}).get("text_blob_ref")
@@ -472,6 +482,14 @@ class MonitoringConsole(ttk.Frame):
             "handoff_status": _loads(installed_project_proof_row.get("handoff_status_json"), {}),
             "supersession_status": _loads(installed_project_proof_row.get("supersession_status_json"), {}),
         }
+        tranche_review_gate = {
+            "current_tranche": _loads(tranche_review_row.get("current_tranche_json"), {}),
+            "latest_review": _loads(tranche_review_row.get("latest_review_json"), {}),
+            "history": _loads(tranche_review_row.get("history_json"), []),
+            "allowed_actions": _loads(tranche_review_row.get("allowed_actions_json"), []),
+            "park_phase_allowed": bool(tranche_review_row.get("park_phase_allowed") or 0),
+            "last_refreshed_at": tranche_review_row.get("last_refreshed_at"),
+        }
         operator_row = self.state.store.query_one(
             """
             SELECT actor_id FROM acknowledgments
@@ -502,6 +520,7 @@ class MonitoringConsole(ttk.Frame):
             "approval_queue": human_dashboard.get("pending_approvals", []),
             "human_dashboard": human_dashboard,
             "tranche_checklist": tranche_rows,
+            "tranche_review_gate": tranche_review_gate,
             "handoff": handoff,
             "runtime_cockpit": runtime_cockpit,
             "training_runway": training_runway,
@@ -560,10 +579,12 @@ class MonitoringConsole(ttk.Frame):
         self._evidence_panel.refresh(bundle)
         self._project_map_panel.refresh(bundle)
         self._contracts_panel.refresh(bundle)
+        self._tranche_review_panel.refresh(bundle)
         self._local_agent_panel.refresh(bundle)
         self._training_panel.refresh(bundle)
         self._installed_proof_panel.refresh(bundle)
         self._handoff_panel.refresh(bundle)
+        self._maybe_prompt_review_gate(bundle)
 
         if current_tab_widget:
             try:
@@ -590,6 +611,26 @@ class MonitoringConsole(ttk.Frame):
             if widget_id == tab_widget:
                 return focus_id
         return ""
+
+    def _maybe_prompt_review_gate(self, bundle: dict) -> None:
+        review_gate = bundle.get("tranche_review_gate", {})
+        current_tranche = review_gate.get("current_tranche", {})
+        latest_review = review_gate.get("latest_review", {})
+        if current_tranche.get("status") != "review_pending":
+            return
+        review_id = str(latest_review.get("review_id") or current_tranche.get("current_review_id") or "")
+        if not review_id or review_id == self._prompted_review_id:
+            return
+        self._prompted_review_id = review_id
+        try:
+            messagebox.showinfo(
+                "Tranche Review Pending",
+                f"{current_tranche.get('title', 'Current tranche')} is waiting for human review.\n\n"
+                "Open the Tranche Review tab to approve Park Phase or return the tranche to the agent.",
+                parent=self.master,
+            )
+        except tk.TclError:
+            pass
 
 
 def run(state) -> int:

@@ -76,8 +76,31 @@ class ActiveTranche:
     next_tranche_candidate: str | None
     park_notes_blob_ref: str | None
     journal_entry_uid: str | None
+    current_review_id: str | None
+    last_review_status: str
+    last_reviewed_at: str | None
     actor_id: str
     event_id: str
+
+
+@dataclass(frozen=True)
+class TrancheReviewPacket:
+    review_id: str
+    tranche_id: str
+    status: str
+    generated_at: str
+    generated_by_actor: str
+    review_packet_json_ref: str
+    review_packet_markdown_ref: str
+    smoke_snapshot: dict
+    latest_decision_ids: list
+    latest_test_records: list
+    reviewed_by_actor: str | None
+    reviewed_at: str | None
+    return_reason: str
+    approval_notes: str
+    event_id: str
+    metadata: dict
 
 
 @dataclass
@@ -101,6 +124,7 @@ _CHECKLIST_DEFS: tuple[tuple[str, str, str, bool], ...] = (
     ("tranche_declared",    "Active tranche declared in DB",          "scope",      True),
     ("scope_declared",      "Declared scope is non-empty",            "scope",      True),
     ("smoke_test_passed",   "Smoke test recorded as PASS",            "testing",    True),
+    ("review_approved",     "Human review approved before Park Phase", "review",    True),
     ("decisions_recorded",  "≥1 typed decision recorded this tranche","decisions",  False),
     ("evidence_attached",   "≥1 evidence item attached this tranche", "evidence",   False),
     ("no_open_tasks",       "No active task in progress",             "tasks",      False),
@@ -139,12 +163,12 @@ class TrancheManager:
             raise ValueError("declare_tranche requires non-empty 'title' in payload")
 
         # Only one active tranche at a time.
-        existing = self.get_active()
+        existing = self.get_current()
         if existing:
             raise RuntimeError(
                 f"Cannot declare a new tranche — '{existing.title}' "
-                f"(id={existing.tranche_id}) is still active. "
-                "Run close_tranche first."
+                f"(id={existing.tranche_id}) is still open with status={existing.status!r}. "
+                "Finish or return the current tranche before declaring a new one."
             )
 
         tranche_id = gen_id("tranche_")
@@ -410,6 +434,16 @@ class TrancheManager:
         )
         return self._row_to_tranche(row) if row else None
 
+    def get_current(self) -> ActiveTranche | None:
+        row = self._store.query_one(
+            """
+            SELECT * FROM active_tranche
+            WHERE status IN ('active', 'review_pending', 'review_approved')
+            ORDER BY started_at DESC LIMIT 1;
+            """
+        )
+        return self._row_to_tranche(row) if row else None
+
     def get_by_id(self, tranche_id: str) -> ActiveTranche | None:
         row = self._store.query_one(
             "SELECT * FROM active_tranche WHERE tranche_id = ?;", (tranche_id,)
@@ -427,8 +461,163 @@ class TrancheManager:
         else:
             rows = self._store.query(
                 "SELECT * FROM decision_records ORDER BY created_at DESC LIMIT 50;"
-            )
+        )
         return [self._row_to_decision(r) for r in rows]
+
+    def create_review_packet(
+        self,
+        *,
+        tranche_id: str,
+        actor_id: str,
+        review_packet_json_ref: str,
+        review_packet_markdown_ref: str,
+        smoke_snapshot: dict,
+        latest_decision_ids: list[str],
+        latest_test_records: list[dict],
+        metadata: dict | None = None,
+    ) -> str:
+        review_id = gen_id("review_")
+        now = now_iso()
+        self._store.execute(
+            """
+            UPDATE tranche_review_packets
+            SET status = 'superseded'
+            WHERE tranche_id = ? AND status IN ('pending', 'returned');
+            """,
+            (tranche_id,),
+        )
+        self._store.execute(
+            """
+            INSERT INTO tranche_review_packets(
+                review_id, tranche_id, status, generated_at, generated_by_actor,
+                review_packet_json_ref, review_packet_markdown_ref,
+                smoke_snapshot_json, latest_decision_ids_json, latest_test_records_json,
+                reviewed_by_actor, reviewed_at, return_reason, approval_notes,
+                event_id, metadata_json
+            ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, NULL, NULL, '', '', 'PENDING', ?);
+            """,
+            (
+                review_id,
+                tranche_id,
+                now,
+                actor_id,
+                review_packet_json_ref,
+                review_packet_markdown_ref,
+                safe_json_dumps(smoke_snapshot),
+                safe_json_dumps(latest_decision_ids),
+                safe_json_dumps(latest_test_records),
+                safe_json_dumps(metadata or {}),
+            ),
+        )
+        self._store.execute(
+            """
+            UPDATE active_tranche
+            SET status = 'review_pending',
+                current_review_id = ?,
+                last_review_status = 'pending',
+                last_reviewed_at = ?
+            WHERE tranche_id = ?;
+            """,
+            (review_id, now, tranche_id),
+        )
+        return review_id
+
+    def finalize_review_event_id(self, review_id: str, event_id: str) -> None:
+        self._store.execute(
+            """
+            UPDATE tranche_review_packets
+            SET event_id = ?
+            WHERE review_id = ? AND event_id = 'PENDING';
+            """,
+            (event_id, review_id),
+        )
+
+    def get_latest_review(self, tranche_id: str) -> TrancheReviewPacket | None:
+        row = self._store.query_one(
+            """
+            SELECT * FROM tranche_review_packets
+            WHERE tranche_id = ?
+            ORDER BY generated_at DESC
+            LIMIT 1;
+            """,
+            (tranche_id,),
+        )
+        return self._row_to_review(row) if row else None
+
+    def list_reviews(self, tranche_id: str, *, limit: int = 10) -> list[TrancheReviewPacket]:
+        rows = self._store.query(
+            """
+            SELECT * FROM tranche_review_packets
+            WHERE tranche_id = ?
+            ORDER BY generated_at DESC
+            LIMIT ?;
+            """,
+            (tranche_id, limit),
+        )
+        return [self._row_to_review(row) for row in rows]
+
+    def return_review(self, *, tranche_id: str, review_id: str, reviewed_by_actor: str, reason: str) -> None:
+        now = now_iso()
+        self._store.execute(
+            """
+            UPDATE tranche_review_packets
+            SET status = 'returned',
+                reviewed_by_actor = ?,
+                reviewed_at = ?,
+                return_reason = ?
+            WHERE review_id = ? AND tranche_id = ?;
+            """,
+            (reviewed_by_actor, now, reason, review_id, tranche_id),
+        )
+        row = self._store.query_one(
+            "SELECT open_questions_json FROM active_tranche WHERE tranche_id = ?;",
+            (tranche_id,),
+        )
+        open_questions = json.loads(row["open_questions_json"] if row else "[]")
+        open_questions.append(
+            {
+                "question": reason,
+                "raised_at": now,
+                "source": "human_review_return",
+                "review_id": review_id,
+                "reviewed_by_actor": reviewed_by_actor,
+            }
+        )
+        self._store.execute(
+            """
+            UPDATE active_tranche
+            SET status = 'active',
+                last_review_status = 'returned',
+                last_reviewed_at = ?,
+                open_questions_json = ?
+            WHERE tranche_id = ?;
+            """,
+            (now, safe_json_dumps(open_questions), tranche_id),
+        )
+
+    def approve_review(self, *, tranche_id: str, review_id: str, reviewed_by_actor: str, notes: str) -> None:
+        now = now_iso()
+        self._store.execute(
+            """
+            UPDATE tranche_review_packets
+            SET status = 'approved',
+                reviewed_by_actor = ?,
+                reviewed_at = ?,
+                approval_notes = ?
+            WHERE review_id = ? AND tranche_id = ?;
+            """,
+            (reviewed_by_actor, now, notes, review_id, tranche_id),
+        )
+        self._store.execute(
+            """
+            UPDATE active_tranche
+            SET status = 'review_approved',
+                last_review_status = 'approved',
+                last_reviewed_at = ?
+            WHERE tranche_id = ?;
+            """,
+            (now, tranche_id),
+        )
 
     def build_checklist(self, state: "SidecarState") -> list[ChecklistItem]:
         """Evaluate all checklist items against current DB state.
@@ -465,7 +654,7 @@ class TrancheManager:
             """
             UPDATE active_tranche
             SET status = 'parked', closed_at = ?, park_notes_blob_ref = ?,
-                journal_entry_uid = ?
+                journal_entry_uid = ?, current_review_id = current_review_id
             WHERE tranche_id = ?;
             """,
             (now_iso(), park_notes_blob_ref, journal_entry_uid, tranche_id),
@@ -522,6 +711,17 @@ class TrancheManager:
             if tests:
                 return ("fail", f"{len(tests)} test run(s), none PASS")
             return ("fail", "no smoke tests recorded — run smoke_test.py then tranche-smoke-pass")
+
+        if item_id == "review_approved":
+            if not tranche:
+                return ("pending", "no current tranche")
+            if tranche.status == "review_approved":
+                return ("pass", f"review approved at {tranche.last_reviewed_at or '?'}")
+            if tranche.status == "review_pending":
+                return ("fail", "review packet is pending human approval")
+            if tranche.last_review_status == "returned":
+                return ("fail", "latest review was returned to the agent")
+            return ("fail", "review has not been approved yet — run tranche-review-request")
 
         if item_id == "decisions_recorded":
             if not tranche:
@@ -606,6 +806,9 @@ class TrancheManager:
             next_tranche_candidate=row["next_tranche_candidate"],
             park_notes_blob_ref=row["park_notes_blob_ref"],
             journal_entry_uid=row["journal_entry_uid"],
+            current_review_id=row["current_review_id"] if "current_review_id" in row.keys() else None,
+            last_review_status=row["last_review_status"] if "last_review_status" in row.keys() else "",
+            last_reviewed_at=row["last_reviewed_at"] if "last_reviewed_at" in row.keys() else None,
             actor_id=row["actor_id"],
             event_id=row["event_id"],
         )
@@ -627,4 +830,25 @@ class TrancheManager:
             actor_id=row["actor_id"],
             created_at=row["created_at"],
             event_id=row["event_id"],
+        )
+
+    @staticmethod
+    def _row_to_review(row) -> TrancheReviewPacket:
+        return TrancheReviewPacket(
+            review_id=row["review_id"],
+            tranche_id=row["tranche_id"],
+            status=row["status"],
+            generated_at=row["generated_at"],
+            generated_by_actor=row["generated_by_actor"],
+            review_packet_json_ref=row["review_packet_json_ref"],
+            review_packet_markdown_ref=row["review_packet_markdown_ref"],
+            smoke_snapshot=json.loads(row["smoke_snapshot_json"] or "{}"),
+            latest_decision_ids=json.loads(row["latest_decision_ids_json"] or "[]"),
+            latest_test_records=json.loads(row["latest_test_records_json"] or "[]"),
+            reviewed_by_actor=row["reviewed_by_actor"],
+            reviewed_at=row["reviewed_at"],
+            return_reason=row["return_reason"] or "",
+            approval_notes=row["approval_notes"] or "",
+            event_id=row["event_id"],
+            metadata=json.loads(row["metadata_json"] or "{}"),
         )
