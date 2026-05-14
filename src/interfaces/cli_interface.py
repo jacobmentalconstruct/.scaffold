@@ -196,6 +196,30 @@ def _build_parser() -> argparse.ArgumentParser:
     p_larr = sub.add_parser("local-agent-run-retry", help="Retry a retryable local-agent run from its captured snapshot.")
     p_larr.add_argument("--run-id", required=True, help="Run id to retry.")
 
+    # ---- teaching sandbox / training runway --------------------------
+    sub.add_parser("training-scenario-list", help="List tracked T8 teaching scenarios.")
+    p_tss = sub.add_parser("training-scenario-show", help="Show one tracked teaching scenario.")
+    p_tss.add_argument("--scenario-id", required=True, help="Scenario id.")
+    p_tsc = sub.add_parser("training-sandbox-create", help="Create or reset a disposable teaching sandbox.")
+    p_tsc.add_argument("--scenario-id", required=True, help="Scenario id.")
+    p_tsc.add_argument("--reset", action="store_true", help="Reset the sandbox before materializing the scenario.")
+    p_trs = sub.add_parser("training-run-scenario", help="Run a teaching scenario in mocked or live mode.")
+    p_trs.add_argument("--scenario-id", required=True, help="Scenario id.")
+    p_trs.add_argument("--mode", default="mocked", choices=["mocked", "live"], help="Run mode.")
+    p_trs.add_argument("--variant", default="good", help="Mocked variant id (for mocked mode).")
+    p_trs.add_argument("--model", default="qwen3.5:9b", help="Ollama model name for live mode.")
+    p_trs.add_argument("--base-url", default="http://localhost:11434", help="Ollama base URL.")
+    p_trs.add_argument("--max-rounds", type=int, default=6, help="Maximum rounds.")
+    p_tsv = sub.add_parser("training-verify", help="Re-run deterministic verification for one scenario run.")
+    p_tsv.add_argument("--scenario-run-id", required=True, help="Scenario run id.")
+    p_tsscore = sub.add_parser("training-scorecard-show", help="Show one training scorecard.")
+    p_tsscore.add_argument("--scorecard-id", default="", help="Scorecard id.")
+    p_tsscore.add_argument("--scenario-run-id", default="", help="Scenario run id.")
+    p_tsexport = sub.add_parser("training-review-export", help="Export a compact reviewer packet for one scenario run.")
+    p_tsexport.add_argument("--scenario-run-id", required=True, help="Scenario run id.")
+    p_tscompare = sub.add_parser("training-compare-runs", help="Compare a small set of training scenario runs.")
+    p_tscompare.add_argument("--scenario-run-id", action="append", default=[], help="Scenario run id (repeatable).")
+
     # ---- tranche ledger (T2.5) ----------------------------------------
     p_td = sub.add_parser("tranche-declare", help="Declare a new active tranche.")
     p_td.add_argument("--actor", required=True, help="Actor id.")
@@ -911,6 +935,55 @@ def _cmd_local_agent_run_retry(state, args) -> int:
     return 0 if result.get("status") in {"completed", "awaiting_approval", "ok"} else 1
 
 
+def _cmd_training_scenario_list(state, args) -> int:
+    _print_json({"scenarios": state.training_runway_manager.list_scenarios()})
+    return 0
+
+
+def _cmd_training_scenario_show(state, args) -> int:
+    _print_json(state.training_runway_manager.get_scenario(args.scenario_id))
+    return 0
+
+
+def _cmd_training_sandbox_create(state, args) -> int:
+    _print_json(state.training_runway_manager.create_sandbox(args.scenario_id, reset=bool(args.reset)))
+    return 0
+
+
+def _cmd_training_run_scenario(state, args) -> int:
+    result = state.training_runway_manager.run_scenario(
+        args.scenario_id,
+        run_mode=args.mode,
+        mock_variant=args.variant,
+        model=args.model,
+        base_url=args.base_url,
+        max_rounds=args.max_rounds,
+    )
+    _print_json(result)
+    scorecard = result.get("scorecard", {})
+    return 0 if scorecard.get("aggregate_result") in {"pass", "partial"} else 1
+
+
+def _cmd_training_verify(state, args) -> int:
+    _print_json(state.training_runway_manager.verify_scenario_run(args.scenario_run_id))
+    return 0
+
+
+def _cmd_training_scorecard_show(state, args) -> int:
+    _print_json(state.training_runway_manager.get_scorecard(scorecard_id=args.scorecard_id, scenario_run_id=args.scenario_run_id))
+    return 0
+
+
+def _cmd_training_review_export(state, args) -> int:
+    _print_json(state.training_runway_manager.export_review(scenario_run_id=args.scenario_run_id))
+    return 0
+
+
+def _cmd_training_compare_runs(state, args) -> int:
+    _print_json(state.training_runway_manager.compare_runs(args.scenario_run_id))
+    return 0
+
+
 def _cmd_tranche_declare(state, args) -> int:
     request = {
         "title": args.title,
@@ -1181,6 +1254,14 @@ _COMMANDS = {
     "local-agent-run-events": _cmd_local_agent_run_events,
     "local-agent-recovery-summary": _cmd_local_agent_recovery_summary,
     "local-agent-run-retry": _cmd_local_agent_run_retry,
+    "training-scenario-list": _cmd_training_scenario_list,
+    "training-scenario-show": _cmd_training_scenario_show,
+    "training-sandbox-create": _cmd_training_sandbox_create,
+    "training-run-scenario": _cmd_training_run_scenario,
+    "training-verify": _cmd_training_verify,
+    "training-scorecard-show": _cmd_training_scorecard_show,
+    "training-review-export": _cmd_training_review_export,
+    "training-compare-runs": _cmd_training_compare_runs,
     # T2.5 Active Tranche Ledger
     "tranche-declare": _cmd_tranche_declare,
     "tranche-status": _cmd_tranche_status,

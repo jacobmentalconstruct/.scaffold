@@ -314,3 +314,29 @@ A bundle of structural borrows committed during the planning phase. Full per-ite
 - **Borrow/adaptation notes:**
   - precursor ideas informed the notion of a richer operator runtime plane
   - the T7 implementation remains substrate-native and manager-owned, not a port of the old runtime telemetry layer
+
+## 2026-05-14 — T8 Teaching Sandbox + Training Runway
+
+- **Status:** T8 ✓ COMPLETE. Minimal training/evaluation substrate now lives inside the cleaned-up sidecar rather than only in the precursor.
+- **Fresh implementation in this branch:**
+  - `src/managers/training_runway_manager.py`
+  - `src/ui/training_runway_panel.py`
+  - `training_scenarios/definitions/*.json`
+  - schema v10 scorecard / scenario-run tables
+  - `training_runway` projection and matching CLI surfaces
+- **Structural borrow / adaptation from `.parts/.dev-tools`:**
+  - the concept of a disposable teaching sandbox
+  - the doctrine split between deterministic mocked runs and live proof evidence
+  - compact reviewer export packets instead of raw transcript dumps
+- **Not ported wholesale:**
+  - old-harness breadth, broad scenario curriculum, and bespoke runtime stores
+  - raw-toolbox execution surface from the precursor
+  - any hidden or side-channel memory/evaluation paths outside the SQLite spine
+
+## 2026-05-14 — T8.1 Post-Park Training Handoff Alignment
+
+- **Status:** T8.1 ✓ COMPLETE. Small continuity/parser follow-up after T8 close.
+- **Original implementation in this branch:**
+  - patched `src/core/projections.py` so roadmap parsing preserves concrete next-step output for `agent_bootstrap` even when the upcoming tranche is defined by completion criteria rather than a file list
+  - updated continuity docs to reflect the T8.1 parked state while keeping T9 as the next substantive horizon
+- **Borrow/adaptation notes:** none beyond the existing continuity doctrine in this branch; this was a substrate-native fix

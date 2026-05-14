@@ -38,7 +38,8 @@ Read in this order. Each builds on the previous.
 7. **`NORTHSTARS.md`** — what the substrate can already do vs what still separates it from superseding the older experiment.
 8. **`DEV_LOG.md`** — append-only milestone narrative.
 9. **`SOURCE_PROVENANCE.md`** — what was written fresh vs structurally borrowed from `.parts/.dev-tools-REF/`. Includes per-tranche entries with evidence hashes.
-10. **`TOOLS.md`** — registered tools index. Source of truth for tool count is the `tool_registry` table; this file is its mirror, regenerated each Park Phase.
+10. **`TRAINING_RUNWAY.md`** — T8 teaching/evaluation runway, seed scenarios, reviewer export flow, and live-proof doctrine.
+11. **`TOOLS.md`** — registered tools index. Source of truth for tool count is the `tool_registry` table; this file is its mirror, regenerated each Park Phase.
 11. **`_docs/`** — supporting docs:
    - `INCORPORATION_INVENTORY.md` — what was reviewed from the precursor at Tranche A.
    - `T1_CLOSEOUT_NOTES.md` — T1 Park artifact (now SUPERSEDED by its journal entry, retained as code-time mirror).
@@ -77,6 +78,7 @@ python -m src.app cli tool-list
 
 # What is the cold-team handoff packet?
 python -m src.app cli projection handoff
+python -m src.app cli projection training_runway
 
 # What approvals or sessions are live?
 python -m src.app cli approval-list --all
@@ -84,6 +86,8 @@ python -m src.app cli session-list
 python -m src.app cli local-agent-status
 python -m src.app cli local-agent-models
 python -m src.app cli local-agent-preflight --actor "agent:local:ollama" --model "qwen3.5:9b"
+python -m src.app cli training-scenario-list
+python -m src.app cli training-run-scenario --scenario-id python_notes_cli --mode mocked --variant good
 
 # What's the latest scan and git state?
 python -m src.app cli scan-status
@@ -147,7 +151,7 @@ When designing anything that persists, ask: STM, Bag, or LTM?
 
 ## How to resume the previous session's work
 
-1. Read `IMPLEMENTATION_ROADMAP.md` — find the next tranche **not** marked `✓ COMPLETE` (now T8).
+1. Read `IMPLEMENTATION_ROADMAP.md` — find the next tranche **not** marked `✓ COMPLETE` (now T9).
 2. Read the latest `_docs/T_n_PARK_NOTES.md` — it captures the previous tranche's closeout in detail.
 3. Run `python -m src.app cli projection agent_bootstrap` — gives you PAST + PRESENT + FUTURE in one read.
 4. Run `python smoke_test.py` — verifies the state is clean. If it's not, **fix Park Phase drift first**.

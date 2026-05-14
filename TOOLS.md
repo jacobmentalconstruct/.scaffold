@@ -1,6 +1,6 @@
 # TOOLS.md — Tool Index
 
-> **Status:** T7 complete. 7 tools registered. Source of truth for each tool's metadata is the `FILE_METADATA` block in its source file; this index is a navigational mirror, regenerated as part of every tranche's Park Phase (see `ARCHITECTURE.md §12.2`).
+> **Status:** T8 complete. 7 tools registered. Source of truth for each tool's metadata is the `FILE_METADATA` block in its source file; this index is a navigational mirror, regenerated as part of every tranche's Park Phase (see `ARCHITECTURE.md §12.2`).
 
 ---
 
@@ -29,7 +29,7 @@ Each tool entry includes: `tool_name`, `category`, one-line summary, `mcp_name`,
 
 ## Registered tools
 
-7 tools registered. The sidecar includes both read-only introspection tools and the first approval-gated mutation tools, and T7's runtime trace layer now records how the local sidecar runtime uses that same narrow tool belt instead of a private back-channel.
+7 tools registered. The sidecar still keeps the runtime tool floor intentionally narrow. T8 adds a training/evaluation substrate around those same tools rather than expanding the belt prematurely.
 
 | tool_name | category | summary | mcp_name | required_authority | file |
 |---|---|---|---|---|---|

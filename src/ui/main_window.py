@@ -22,6 +22,7 @@ from src.ui.journal_panel import JournalPanel
 from src.ui.local_agent_panel import LocalAgentPanel
 from src.ui.project_map_panel import ProjectMapPanel
 from src.ui.state_panel import StatePanel
+from src.ui.training_runway_panel import TrainingRunwayPanel
 
 
 POLL_MS = 3000
@@ -328,6 +329,7 @@ class MonitoringConsole(ttk.Frame):
         self._project_map_panel = ProjectMapPanel(self._notebook)
         self._contracts_panel = ContractsPanel(self._notebook, self.state)
         self._local_agent_panel = LocalAgentPanel(self._notebook, self.state)
+        self._training_panel = TrainingRunwayPanel(self._notebook, self.state)
         self._handoff_panel = HandoffPanel(self._notebook)
 
         self._add_tab("dashboard", "Dashboard", self._dashboard)
@@ -337,6 +339,7 @@ class MonitoringConsole(ttk.Frame):
         self._add_tab("projmap", "Project Map", self._project_map_panel)
         self._add_tab("contracts", "Contracts", self._contracts_panel)
         self._add_tab("localagent", "Local Agent", self._local_agent_panel)
+        self._add_tab("training", "Training Runway", self._training_panel)
         self._add_tab("handoff", "Handoff", self._handoff_panel)
 
     def _build_status_bar(self) -> None:
@@ -392,6 +395,7 @@ class MonitoringConsole(ttk.Frame):
         )
         self.state.projections.refresh("viewport_state")
         self.state.projections.refresh("handoff")
+        self.state.projections.refresh("training_runway")
 
         viewport_row = _first_row(self.state.projections.read("viewport_state").rows)
         current_state_row = _first_row(self.state.projections.read("current_sidecar_state").rows)
@@ -403,6 +407,7 @@ class MonitoringConsole(ttk.Frame):
         project_rows = self.state.projections.read("project_map").rows
         handoff_row = _first_row(self.state.projections.read("handoff").rows)
         runtime_cockpit_row = _first_row(self.state.projections.read("runtime_cockpit").rows)
+        training_runway_row = _first_row(self.state.projections.read("training_runway").rows)
 
         contract_text = ""
         blob_ref = (self.state.current_contract or {}).get("text_blob_ref")
@@ -446,6 +451,14 @@ class MonitoringConsole(ttk.Frame):
             "grounding_counts": _loads(runtime_cockpit_row.get("grounding_counts_json"), {}),
             "selected_run_ids": _loads(runtime_cockpit_row.get("selected_run_ids_json"), []),
         }
+        training_runway = {
+            "scenario_inventory": _loads(training_runway_row.get("scenario_inventory_json"), []),
+            "recent_runs": _loads(training_runway_row.get("recent_runs_json"), []),
+            "recent_scorecards": _loads(training_runway_row.get("recent_scorecards_json"), []),
+            "pass_fail_counts": _loads(training_runway_row.get("pass_fail_counts_json"), {}),
+            "latest_live_proof": _loads(training_runway_row.get("latest_live_proof_json"), {}),
+            "reviewer_export_handles": _loads(training_runway_row.get("reviewer_export_handles_json"), []),
+        }
         operator_row = self.state.store.query_one(
             """
             SELECT actor_id FROM acknowledgments
@@ -478,6 +491,7 @@ class MonitoringConsole(ttk.Frame):
             "tranche_checklist": tranche_rows,
             "handoff": handoff,
             "runtime_cockpit": runtime_cockpit,
+            "training_runway": training_runway,
             "default_operator_actor": operator_row["actor_id"] if operator_row else "human:ui",
         }
 
@@ -533,6 +547,7 @@ class MonitoringConsole(ttk.Frame):
         self._project_map_panel.refresh(bundle)
         self._contracts_panel.refresh(bundle)
         self._local_agent_panel.refresh(bundle)
+        self._training_panel.refresh(bundle)
         self._handoff_panel.refresh(bundle)
 
         if current_tab_widget:

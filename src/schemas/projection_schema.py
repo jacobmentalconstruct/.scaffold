@@ -28,6 +28,7 @@ PROJECTION_NAMES = (
     "viewport_state",
     "handoff",
     "runtime_cockpit",
+    "training_runway",
 )
 
 
@@ -172,6 +173,16 @@ PROJECTION_COLUMNS: dict[str, tuple[str, ...]] = {
         "selected_run_ids_json TEXT",
         "last_refreshed_at TEXT",
     ),
+    "training_runway": (
+        "id INTEGER PRIMARY KEY CHECK (id = 1)",
+        "scenario_inventory_json TEXT",
+        "recent_runs_json TEXT",
+        "recent_scorecards_json TEXT",
+        "pass_fail_counts_json TEXT",
+        "latest_live_proof_json TEXT",
+        "reviewer_export_handles_json TEXT",
+        "last_refreshed_at TEXT",
+    ),
 }
 
 
@@ -217,10 +228,10 @@ INTENT_AFFECTS_PROJECTIONS: dict[str, tuple[str, ...]] = {
     "record_decision": ("tranche_checklist", "agent_bootstrap", "viewport_state"),
     "smoke_pass":      ("tranche_checklist", "viewport_state"),
     "close_tranche":   (
-        "tranche_checklist", "human_dashboard", "agent_bootstrap", "journal_timeline", "viewport_state", "handoff", "runtime_cockpit",
+        "tranche_checklist", "human_dashboard", "agent_bootstrap", "journal_timeline", "viewport_state", "handoff", "runtime_cockpit", "training_runway",
     ),
-    "declare_tranche": ("tranche_checklist", "human_dashboard", "agent_bootstrap", "viewport_state", "handoff", "runtime_cockpit"),
-    "record_decision": ("tranche_checklist", "agent_bootstrap", "viewport_state", "handoff", "runtime_cockpit"),
+    "declare_tranche": ("tranche_checklist", "human_dashboard", "agent_bootstrap", "viewport_state", "handoff", "runtime_cockpit", "training_runway"),
+    "record_decision": ("tranche_checklist", "agent_bootstrap", "viewport_state", "handoff", "runtime_cockpit", "training_runway"),
 }
 
 

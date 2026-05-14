@@ -1,0 +1,71 @@
+{
+  "scenario_id": "static_status_board",
+  "scenario_version": "1",
+  "title": "Static Status Board",
+  "description": "Create a small static HTML/CSS status board inside the disposable sandbox project.",
+  "category": "baseline",
+  "task_card": "# TASK CARD\n\nBuild a tiny static status board.\n\nRequirements:\n- Read this task card first.\n- Create `index.html`, `styles.css`, and `app.js`.\n- `index.html` must reference the CSS and JS files.\n- Include a `status-board` class in the markup or stylesheet.\n- Do not modify sandbox control files.\n",
+  "allowed_tools": [
+    "read_projection",
+    "file_tree_snapshot",
+    "text_file_reader",
+    "text_file_writer"
+  ],
+  "expected_artifacts": [
+    "index.html",
+    "styles.css",
+    "app.js"
+  ],
+  "seed_files": {},
+  "checks": [
+    {
+      "check_id": "index_exists",
+      "check_name": "index.html exists",
+      "type": "file_exists",
+      "path": "index.html",
+      "dimension": "artifact_correctness",
+      "weight": 15,
+      "points_possible": 15
+    },
+    {
+      "check_id": "index_refs_assets",
+      "check_name": "index references CSS and JS",
+      "type": "contains_all",
+      "path": "index.html",
+      "contains": ["styles.css", "app.js", "status-board"],
+      "dimension": "instruction_following",
+      "weight": 25,
+      "points_possible": 25
+    },
+    {
+      "check_id": "styles_exists",
+      "check_name": "styles.css exists",
+      "type": "file_exists",
+      "path": "styles.css",
+      "dimension": "artifact_correctness",
+      "weight": 10,
+      "points_possible": 10
+    },
+    {
+      "check_id": "app_exists",
+      "check_name": "app.js exists",
+      "type": "file_exists",
+      "path": "app.js",
+      "dimension": "artifact_correctness",
+      "weight": 10,
+      "points_possible": 10
+    }
+  ],
+  "mock_variants": {
+    "good": {
+      "mock_responses": [
+        "{\"summary\":\"Read the task card.\",\"action\":{\"type\":\"tool_call\",\"tool_name\":\"text_file_reader\",\"arguments\":{\"path\":\"_docs/TASK_CARD.md\"}}}",
+        "{\"summary\":\"Write the HTML shell.\",\"action\":{\"type\":\"tool_call\",\"tool_name\":\"text_file_writer\",\"arguments\":{\"path\":\"index.html\",\"content\":\"<!doctype html>\\n<html>\\n<head><meta charset='utf-8'><title>Status Board</title><link rel='stylesheet' href='styles.css'></head>\\n<body>\\n  <main class='status-board'>\\n    <h1>Status Board</h1>\\n    <ul id='items'></ul>\\n  </main>\\n  <script src='app.js'></script>\\n</body>\\n</html>\\n\",\"action\":\"create\",\"confirm\":true,\"overwrite\":true,\"create_dirs\":true}}}",
+        "{\"summary\":\"Write the stylesheet.\",\"action\":{\"type\":\"tool_call\",\"tool_name\":\"text_file_writer\",\"arguments\":{\"path\":\"styles.css\",\"content\":\"body { font-family: sans-serif; }\\n.status-board { max-width: 40rem; margin: 2rem auto; }\\n\",\"action\":\"create\",\"confirm\":true,\"overwrite\":true,\"create_dirs\":true}}}",
+        "{\"summary\":\"Write the script.\",\"action\":{\"type\":\"tool_call\",\"tool_name\":\"text_file_writer\",\"arguments\":{\"path\":\"app.js\",\"content\":\"document.getElementById('items').innerHTML = '<li>ready</li>';\\n\",\"action\":\"create\",\"confirm\":true,\"overwrite\":true,\"create_dirs\":true}}}",
+        "{\"summary\":\"Static status board scaffolded.\",\"action\":{\"type\":\"final\",\"message\":\"Created index.html, styles.css, and app.js for the sandbox status board.\"}}"
+      ]
+    }
+  },
+  "live_compatible": true
+}

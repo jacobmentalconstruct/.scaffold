@@ -62,6 +62,7 @@ class ProjectionManager:
         self._builders["viewport_state"] = self._build_viewport_state
         self._builders["handoff"] = self._build_handoff
         self._builders["runtime_cockpit"] = self._build_runtime_cockpit
+        self._builders["training_runway"] = self._build_training_runway
         # Stub builders for other projections (just stamp the timestamp).
         for name in PROJECTION_NAMES:
             if name not in self._builders:
@@ -910,6 +911,7 @@ class ProjectionManager:
                 {"id": "projmap", "label": "Project Map", "count": int(paths.get("indexed_path_count", 0))},
                 {"id": "contracts", "label": "Contracts", "count": contract_unit_count},
                 {"id": "localagent", "label": "Local Agent", "count": 1},
+                {"id": "training", "label": "Training Runway", "count": 1},
                 {"id": "handoff", "label": "Handoff", "count": 1},
                 {"id": "events", "label": "Envelopes", "count": event_count},
                 {"id": "tools", "label": "Tool Invocations", "count": tool_invocation_count},
@@ -1065,6 +1067,7 @@ class ProjectionManager:
             "python -m src.app cli projection handoff",
             "python -m src.app cli projection agent_bootstrap",
             "python -m src.app cli projection runtime_cockpit",
+            "python -m src.app cli projection training_runway",
             "python -m src.app cli journal-query --kind todo --status open",
             "python -m src.app ui",
         ]
@@ -1177,6 +1180,40 @@ class ProjectionManager:
             ),
         )
 
+    def _build_training_runway(self) -> None:
+        ts = now_iso()
+        summary = (
+            self._state.training_runway_manager.summary(limit=8)
+            if getattr(self._state, "training_runway_manager", None)
+            else {
+                "scenario_inventory": [],
+                "recent_runs": [],
+                "recent_scorecards": [],
+                "pass_fail_counts": {"pass": 0, "fail": 0},
+                "latest_live_proof": {},
+                "reviewer_export_handles": [],
+            }
+        )
+        self._store.execute("DELETE FROM proj_training_runway;")
+        self._store.execute(
+            """
+            INSERT OR REPLACE INTO proj_training_runway(
+                id, scenario_inventory_json, recent_runs_json, recent_scorecards_json,
+                pass_fail_counts_json, latest_live_proof_json, reviewer_export_handles_json,
+                last_refreshed_at
+            ) VALUES (1, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                safe_json_dumps(summary.get("scenario_inventory", [])),
+                safe_json_dumps(summary.get("recent_runs", [])),
+                safe_json_dumps(summary.get("recent_scorecards", [])),
+                safe_json_dumps(summary.get("pass_fail_counts", {})),
+                safe_json_dumps(summary.get("latest_live_proof", {})),
+                safe_json_dumps(summary.get("reviewer_export_handles", [])),
+                ts,
+            ),
+        )
+
 
 # ---------------------------------------------------------------------------
 # IMPLEMENTATION_ROADMAP.md and ARCHITECTURE.md §15 parsers
@@ -1262,6 +1299,16 @@ def _parse_roadmap(text: str) -> tuple[dict, list, list]:
             line = line.strip().lstrip("-*").strip()
             if line and len(line) < 200:
                 next_steps.append(line)
+    if not next_steps and completion:
+        for line in completion.splitlines():
+            line = line.strip().lstrip("-*").strip()
+            if line and len(line) < 200:
+                next_steps.append(line)
+    if not next_steps and scope:
+        for sentence in re.split(r"(?<=[.!?])\s+", scope):
+            sentence = sentence.strip()
+            if sentence and len(sentence) < 200:
+                next_steps.append(sentence)
 
     active_goals: list[str] = []
     if completion:

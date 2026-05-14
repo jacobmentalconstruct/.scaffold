@@ -487,16 +487,29 @@ See [`src/managers/constraint_manager.py`](src/managers/constraint_manager.py) f
 - **Explicit retry lineage** — RESOLVED: retry now creates a fresh run with `retried_from_run_id` and a captured input/config snapshot rather than silently reusing ambient state.
 - **Grounded final completion summaries** — RESOLVED: successful local-agent completions now link their final claims to touched paths, journal records, hunks, or explicit `no_mutation_trace` evidence.
 
+### Resolved at T8 (2026-05-14)
+
+- **Disposable teaching sandbox substrate** — RESOLVED: the sidecar now materializes sidecar-owned, ignored, disposable host-like targets under `workspaces/teaching_sandbox/projects/` instead of relying on precursor-only harness state.
+- **Scenario-run identity distinct from local-agent run identity** — RESOLVED: T8 now persists `scenario_run_id` separately from linked T7 `run_id` values so evaluation history does not collapse into raw runtime traces.
+- **Structured verifier and scorecard layer** — RESOLVED: deterministic checks now emit stable structured scorecards with scenario snapshots, aggregate pass/fail outcomes, dimension scores, failure classes, touched-path summaries, evidence refs, and journal linkage.
+- **Compact evaluation visibility inside the sidecar** — RESOLVED: `training_runway`, new CLI surfaces, and the Tk Training Runway panel now expose scenario inventory, recent runs, scorecards, reviewer exports, and live-proof status without leaving the sidecar shell.
+- **Live-proof evidence path for training runs** — RESOLVED: a live Ollama scenario proof now lands as a trace-linked scorecard + reviewer export + evidence ref + journal entry even when the model fails the scenario.
+
+### Resolved at T8.1 (2026-05-14)
+
+- **Outcome-driven roadmap parsing for handoff/bootstrap** — RESOLVED: `agent_bootstrap.next_planned_steps_json` now falls back from file/surface lists to completion criteria and scope sentences, so the next tranche remains visible even when the roadmap is written in proof-oriented terms.
+- **Post-park continuity alignment after T8** — RESOLVED: smoke, handoff, bootstrap, and fast-pickup surfaces now agree mechanically on T9 as the next horizon after the training tranche closes.
+
 ### Still open (deferred to later tranches)
 
 Every item below must be mapped in `IMPLEMENTATION_ROADMAP.md` and tracked as an open `kind='todo'` journal entry until resolved or deliberately superseded.
 
-- **Concurrent multi-process behavior** — Target tranche: **T8/T9**. T5 and T7 exercised the shared spine across Tk, MCP, and local runtime surfaces, but a longer soak and heavier concurrent stress run are still needed before vendability proof.
+- **Concurrent multi-process behavior** — Target tranche: **T9**. T5, T7, and T8 exercised the shared spine across Tk, MCP, local runtime, and training surfaces, but a longer soak and heavier concurrent stress run are still needed before vendability proof.
 - **MCP transport expansion** — Target horizon: **T9+ / Phase 2 optional**. `stdio` is the current vendable default. HTTP transport is no longer an open MVP decision; it is optional future expansion only if a later tranche justifies it.
-- **Snapshot cadence** — Target tranche: **T8/T9**. Decide whether snapshots happen on tranche close, on demand, or both when building the snapshot orchestrator.
-- **Schema migration test harness** — Target tranche: **T8**. Plan exists; implementation still deferred.
-- **Bag/Shelf overflow hardening** — Target tranche: **T8**. Core STM overflow and shelf derivation are implemented; remaining work is polish, retrieval ergonomics, and follow-up adjustments discovered after T6/T7.
-- **HARD_BLOCK gate enforcement** — Target tranche: **T8/T9**. `ContractAuthority._check_hard_block` is still advisory; stricter end-to-end enforcement needs a dedicated hardening pass.
-- **Contract-revision-aware seed** — Target tranche: **T8/T9**. When contract markdown changes, `seed_from_contract` should move from upsert-in-place to explicit versioning + `supersedes` semantics.
-- **Authorities table empty-by-default outside session-backed actors** — Target tranche: **T8**. T5 created explicit authorities rows for session-backed local/MCP actors, but non-session actors can still fall back to default-by-prefix behavior.
-- **Per-hunk change summaries in evidence** — Target tranche: **T8**. Exact hunk rows now exist with file + old/new line ranges + raw diff text refs. The remaining refinement is linking them more deeply to `decision_records` and optionally generating compact summaries into the evidence layer for even faster resume.
+- **Snapshot cadence** — Target tranche: **T9**. Decide whether snapshots happen on tranche close, on demand, or both when building the snapshot orchestrator.
+- **Schema migration test harness** — Target tranche: **T9**. Still deferred after T8; needed before installed-project vendability proof.
+- **Bag/Shelf overflow hardening** — Target tranche: **T9**. Core STM overflow and shelf derivation are implemented; remaining work is polish, retrieval ergonomics, and follow-up adjustments discovered after T6/T7/T8.
+- **HARD_BLOCK gate enforcement** — Target tranche: **T9**. `ContractAuthority._check_hard_block` is still advisory; stricter end-to-end enforcement needs a dedicated hardening pass.
+- **Contract-revision-aware seed** — Target tranche: **T9**. When contract markdown changes, `seed_from_contract` should move from upsert-in-place to explicit versioning + `supersedes` semantics.
+- **Authorities table empty-by-default outside session-backed actors** — Target tranche: **T9**. T5 created explicit authorities rows for session-backed local/MCP actors, but non-session actors can still fall back to default-by-prefix behavior.
+- **Per-hunk change summaries in evidence** — Target tranche: **T9**. Exact hunk rows now exist with file + old/new line ranges + raw diff text refs. The remaining refinement is linking them more deeply to `decision_records` and optionally generating compact summaries into the evidence layer for even faster resume.

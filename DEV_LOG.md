@@ -78,3 +78,17 @@ Append-only milestone log for humans and agents onboarding cold.
 - Added normalized recovery classification plus CLI/Tk inspection surfaces (`runtime_cockpit`, `local-agent-run-list`, `local-agent-run-show`, `local-agent-run-events`, `local-agent-recovery-summary`, `local-agent-run-retry`).
 - Extended the Tk local-agent panel into a real operator cockpit with run history, selected-run detail, recovery hints, and retry actions.
 - Upgraded smoke to prove successful, failed, stopped, retried, grounded, projected, and Tk-hydrated T7 paths end to end.
+
+## 2026-05-14 — T8 Teaching Sandbox + Training Runway
+
+- Added schema v10 for `teaching_scenario_runs`, `teaching_scenario_run_trace_links`, `teaching_scorecards`, and `teaching_reviewer_exports`.
+- Added `TrainingRunwayManager`, tracked scenario definitions, disposable sandbox materialization, structured verifiers, reviewer exports, and evidence/journal linkage on top of T7 run traces.
+- Taught the local runtime how to target disposable sandbox projects safely during evaluation runs without changing the normal host-project write floor.
+- Added the `training_runway` projection, new training CLI commands, and a Tk Training Runway panel inside the existing operator shell.
+- Upgraded smoke to prove deterministic mocked pass/fail scenarios, projection hydration, reviewer export output, and Tk training-panel hydration.
+- Recorded one live Ollama proof for `python_notes_cli`; it failed as `malformed_tool_call`, but the sidecar still captured a complete review packet.
+
+## 2026-05-14 — T8.1 Post-Park Training Handoff Alignment
+
+- Fixed roadmap parsing so `agent_bootstrap.next_planned_steps_json` stays populated even when the next tranche is described by proof/outcome criteria instead of a file/surface list.
+- Re-ran continuity validation so smoke, handoff, bootstrap, and fast-pickup docs all agree on T9 as the next horizon after the T8 park.

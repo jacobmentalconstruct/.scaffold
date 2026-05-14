@@ -1837,6 +1837,140 @@ def main() -> int:
         _tb.print_exc()
         failures.append(_fail(f"T7 Tk cockpit hydration failed: {e}"))
 
+    _section("79. T8: schema v10 applied — teaching sandbox tables exist")
+    if state.store.schema_version() >= 10:
+        _ok(f"schema_version={state.store.schema_version()}")
+    else:
+        failures.append(_fail(f"schema_version={state.store.schema_version()} (expected >= 10)"))
+    for table_name in (
+        "teaching_scenario_runs",
+        "teaching_scenario_run_trace_links",
+        "teaching_scorecards",
+        "teaching_reviewer_exports",
+    ):
+        row = state.store.query_one(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?;",
+            (table_name,),
+        )
+        if row and row["name"] == table_name:
+            _ok(f"{table_name} table exists")
+        else:
+            failures.append(_fail(f"{table_name} table missing"))
+
+    _section("80. T8: deterministic teaching scenarios pass and fail with trace linkage")
+    t8_good_run: dict = {}
+    t8_bad_run: dict = {}
+    try:
+        scenarios = state.training_runway_manager.list_scenarios()
+        if len(scenarios) >= 3:
+            _ok(f"training scenario inventory has {len(scenarios)} scenario(s)")
+        else:
+            failures.append(_fail(f"training scenario inventory too small: {scenarios}"))
+
+        created = state.training_runway_manager.create_sandbox("python_notes_cli", reset=True)
+        recreated = state.training_runway_manager.create_sandbox("python_notes_cli", reset=True)
+        if created.get("sandbox_root") == recreated.get("sandbox_root"):
+            _ok("training sandbox create/reset is idempotent")
+        else:
+            failures.append(_fail(f"training sandbox create/reset mismatch: {created} vs {recreated}"))
+
+        t8_good_run = state.training_runway_manager.run_scenario("python_notes_cli", run_mode="mocked", mock_variant="good")
+        good_scorecard = t8_good_run.get("scorecard", {})
+        if (
+            good_scorecard.get("aggregate_result") == "pass"
+            and good_scorecard.get("linked_run_ids")
+            and good_scorecard.get("evidence_refs")
+            and t8_good_run.get("journal_entry_uid")
+        ):
+            _ok("mocked good training scenario produced passing trace-linked scorecard")
+        else:
+            failures.append(_fail(f"T8 mocked good scenario unexpected: {t8_good_run}"))
+
+        t8_bad_run = state.training_runway_manager.run_scenario("python_notes_cli", run_mode="mocked", mock_variant="bad")
+        bad_scorecard = t8_bad_run.get("scorecard", {})
+        if (
+            bad_scorecard.get("aggregate_result") == "fail"
+            and any(check.get("status") == "fail" for check in bad_scorecard.get("checks", []))
+            and bad_scorecard.get("evidence_refs")
+        ):
+            _ok("mocked bad training scenario produced failing structured scorecard")
+        else:
+            failures.append(_fail(f"T8 mocked bad scenario unexpected: {t8_bad_run}"))
+    except Exception as e:
+        traceback.print_exc()
+        failures.append(_fail(f"T8 deterministic scenario verification failed: {e}"))
+
+    _section("81. T8: training projection and reviewer export surfaces are real")
+    try:
+        runway = state.projections.refresh("training_runway")
+        runway_row = _first_projection_row(runway.rows)
+        inventory = json.loads(runway_row.get("scenario_inventory_json") or "[]")
+        recent_runs = json.loads(runway_row.get("recent_runs_json") or "[]")
+        recent_scorecards = json.loads(runway_row.get("recent_scorecards_json") or "[]")
+        counts = json.loads(runway_row.get("pass_fail_counts_json") or "{}")
+        if inventory:
+            _ok(f"training_runway inventory exposes {len(inventory)} scenario(s)")
+        else:
+            failures.append(_fail("training_runway inventory is empty"))
+        if len(recent_runs) >= 2:
+            _ok(f"training_runway recent_runs exposes {len(recent_runs)} run(s)")
+        else:
+            failures.append(_fail("training_runway recent_runs missing mocked pass/fail coverage"))
+        if recent_scorecards:
+            _ok(f"training_runway recent_scorecards exposes {len(recent_scorecards)} scorecard(s)")
+        else:
+            failures.append(_fail("training_runway recent_scorecards is empty"))
+        if counts.get("pass", 0) >= 1 and counts.get("fail", 0) >= 1:
+            _ok("training_runway pass/fail counts reflect deterministic pass and fail paths")
+        else:
+            failures.append(_fail(f"training_runway pass/fail counts unexpected: {counts}"))
+
+        export_payload = state.training_runway_manager.export_review(
+            scenario_run_id=str(t8_bad_run.get("scenario_run_id", ""))
+        )
+        export_md = HERE / str(export_payload.get("markdown_path", ""))
+        if export_md.is_file():
+            export_text = export_md.read_text(encoding="utf-8")
+            if "## Checks" in export_text and "fail" in export_text.lower():
+                _ok("training reviewer export shows failed checks clearly")
+            else:
+                failures.append(_fail("training reviewer export missing failed-check detail"))
+        else:
+            failures.append(_fail(f"training reviewer export file missing: {export_payload}"))
+    except Exception as e:
+        traceback.print_exc()
+        failures.append(_fail(f"T8 projection/export verification failed: {e}"))
+
+    _section("82. T8: Tk training runway panel hydrates from training projection")
+    try:
+        import tkinter as _tk
+        from src.ui.training_runway_panel import TrainingRunwayPanel
+
+        runway = state.projections.refresh("training_runway")
+        runway_row = _first_projection_row(runway.rows)
+        bundle = {
+            "training_runway": {
+                "scenario_inventory": json.loads(runway_row.get("scenario_inventory_json") or "[]"),
+                "recent_runs": json.loads(runway_row.get("recent_runs_json") or "[]"),
+                "recent_scorecards": json.loads(runway_row.get("recent_scorecards_json") or "[]"),
+                "pass_fail_counts": json.loads(runway_row.get("pass_fail_counts_json") or "{}"),
+                "latest_live_proof": json.loads(runway_row.get("latest_live_proof_json") or "{}"),
+                "reviewer_export_handles": json.loads(runway_row.get("reviewer_export_handles_json") or "[]"),
+            }
+        }
+        root = _tk.Tk()
+        root.withdraw()
+        panel = TrainingRunwayPanel(root, state)
+        panel.refresh(bundle)
+        root.update_idletasks()
+        root.update()
+        root.destroy()
+        _ok(f"TrainingRunwayPanel hydrated from training_runway projection: {type(panel).__name__}")
+    except Exception as e:
+        import traceback as _tb
+        _tb.print_exc()
+        failures.append(_fail(f"T8 Tk panel hydration failed: {e}"))
+
     _section("RESULT")
     if failures:
         print(f"\n  {len(failures)} FAILURE(S):")

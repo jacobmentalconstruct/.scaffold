@@ -654,6 +654,84 @@ _T7_DDL: tuple[str, ...] = (
 )
 
 
+# ----------------------------------------------------------------------------
+# Migration v10 — T8: Teaching Sandbox + Training Runway
+# ----------------------------------------------------------------------------
+
+_T8_DDL: tuple[str, ...] = (
+    """
+    CREATE TABLE IF NOT EXISTS teaching_scenario_runs (
+        scenario_run_id TEXT PRIMARY KEY,
+        scenario_id TEXT NOT NULL,
+        scenario_version TEXT NOT NULL,
+        scenario_hash TEXT NOT NULL,
+        run_mode TEXT NOT NULL,
+        actor_id TEXT NOT NULL,
+        model TEXT NOT NULL DEFAULT '',
+        sandbox_root TEXT NOT NULL,
+        run_status TEXT NOT NULL,
+        input_snapshot_json TEXT NOT NULL DEFAULT '{}',
+        linked_run_ids_json TEXT NOT NULL DEFAULT '[]',
+        scorecard_id TEXT,
+        journal_entry_uid TEXT,
+        reviewer_export_ref TEXT,
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '{}'
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_teaching_scenario_runs_started ON teaching_scenario_runs(started_at DESC);",
+    "CREATE INDEX IF NOT EXISTS idx_teaching_scenario_runs_scenario ON teaching_scenario_runs(scenario_id, started_at DESC);",
+    """
+    CREATE TABLE IF NOT EXISTS teaching_scenario_run_trace_links (
+        scenario_run_id TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        relation TEXT NOT NULL DEFAULT 'primary_attempt',
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (scenario_run_id, run_id, relation)
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_teaching_scenario_run_trace_links_run ON teaching_scenario_run_trace_links(run_id, created_at);",
+    """
+    CREATE TABLE IF NOT EXISTS teaching_scorecards (
+        scorecard_id TEXT PRIMARY KEY,
+        scenario_run_id TEXT NOT NULL,
+        scenario_id TEXT NOT NULL,
+        run_mode TEXT NOT NULL,
+        aggregate_result TEXT NOT NULL,
+        pass_fail_state TEXT NOT NULL,
+        total_score INTEGER NOT NULL DEFAULT 0,
+        max_score INTEGER NOT NULL DEFAULT 100,
+        linked_run_ids_json TEXT NOT NULL DEFAULT '[]',
+        dimension_scores_json TEXT NOT NULL DEFAULT '{}',
+        checks_json TEXT NOT NULL DEFAULT '[]',
+        failure_classes_json TEXT NOT NULL DEFAULT '[]',
+        touched_path_summary_json TEXT NOT NULL DEFAULT '{}',
+        evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+        journal_entry_uid TEXT,
+        reviewer_export_ref TEXT,
+        created_at TEXT NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}'
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_teaching_scorecards_created ON teaching_scorecards(created_at DESC);",
+    "CREATE INDEX IF NOT EXISTS idx_teaching_scorecards_result ON teaching_scorecards(aggregate_result, created_at DESC);",
+    """
+    CREATE TABLE IF NOT EXISTS teaching_reviewer_exports (
+        export_id TEXT PRIMARY KEY,
+        scenario_run_id TEXT NOT NULL,
+        scorecard_id TEXT NOT NULL,
+        format TEXT NOT NULL,
+        blob_ref TEXT NOT NULL,
+        export_path TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}'
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_teaching_reviewer_exports_run ON teaching_reviewer_exports(scenario_run_id, created_at DESC);",
+)
+
+
 # Migration registry: version → (description, list of statements).
 # Migrations run in version order, idempotent.
 _MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
@@ -666,6 +744,7 @@ _MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
     (7, "T4 Approval loop + handoff doctrine uplift", _T4_DDL),
     (8, "T6 STM + Bag of Evidence + Evidence Shelf", _T6_DDL),
     (9, "T7 Run Trace, Recovery, and Operator Cockpit", _T7_DDL),
+    (10, "T8 Teaching Sandbox + Training Runway", _T8_DDL),
 )
 
 

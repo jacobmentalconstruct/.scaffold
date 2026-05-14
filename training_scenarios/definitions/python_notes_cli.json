@@ -1,0 +1,79 @@
+{
+  "scenario_id": "python_notes_cli",
+  "scenario_version": "1",
+  "title": "Python Notes CLI",
+  "description": "Create a tiny stdlib notes CLI plus a README inside the disposable sandbox project.",
+  "category": "baseline",
+  "task_card": "# TASK CARD\n\nBuild a small stdlib Python notes CLI inside this sandbox project.\n\nRequirements:\n- Read this task card first.\n- Create `notes.py` with `add_note`, `list_notes`, and `main` functions.\n- Persist notes to `notes.json`.\n- Create `README.md` with short usage instructions.\n- Do not modify `_docs/TASK_CARD.md` or `_docs/builder_constraint_contract.md`.\n- Keep all work inside this sandbox project root.\n",
+  "allowed_tools": [
+    "read_projection",
+    "file_tree_snapshot",
+    "text_file_reader",
+    "text_file_writer"
+  ],
+  "expected_artifacts": [
+    "notes.py",
+    "README.md"
+  ],
+  "seed_files": {
+    "notes.json": "[]\n"
+  },
+  "checks": [
+    {
+      "check_id": "notes_file_exists",
+      "check_name": "notes.py exists",
+      "type": "file_exists",
+      "path": "notes.py",
+      "dimension": "artifact_correctness",
+      "weight": 20,
+      "points_possible": 20
+    },
+    {
+      "check_id": "notes_functions",
+      "check_name": "notes.py contains required functions",
+      "type": "contains_all",
+      "path": "notes.py",
+      "contains": ["def add_note", "def list_notes", "def main", "notes.json"],
+      "dimension": "instruction_following",
+      "weight": 25,
+      "points_possible": 25
+    },
+    {
+      "check_id": "readme_exists",
+      "check_name": "README exists",
+      "type": "file_exists",
+      "path": "README.md",
+      "dimension": "documentation_or_journal_quality",
+      "weight": 10,
+      "points_possible": 10
+    },
+    {
+      "check_id": "readme_usage",
+      "check_name": "README describes usage",
+      "type": "contains_any",
+      "path": "README.md",
+      "contains": ["python notes.py", "Usage", "notes"],
+      "dimension": "constraint_adherence",
+      "weight": 15,
+      "points_possible": 15
+    }
+  ],
+  "mock_variants": {
+    "good": {
+      "mock_responses": [
+        "{\"summary\":\"Read the task card first.\",\"action\":{\"type\":\"tool_call\",\"tool_name\":\"text_file_reader\",\"arguments\":{\"path\":\"_docs/TASK_CARD.md\"}}}",
+        "{\"summary\":\"Write the notes CLI.\",\"action\":{\"type\":\"tool_call\",\"tool_name\":\"text_file_writer\",\"arguments\":{\"path\":\"notes.py\",\"content\":\"import json\\nfrom pathlib import Path\\n\\nSTORE = Path('notes.json')\\n\\ndef add_note(text: str) -> None:\\n    notes = list_notes()\\n    notes.append(text)\\n    STORE.write_text(json.dumps(notes, indent=2), encoding='utf-8')\\n\\ndef list_notes() -> list[str]:\\n    if not STORE.exists():\\n        return []\\n    return json.loads(STORE.read_text(encoding='utf-8'))\\n\\ndef main() -> None:\\n    print('Notes:', list_notes())\\n\\nif __name__ == '__main__':\\n    main()\\n\",\"action\":\"create\",\"confirm\":true,\"overwrite\":true,\"create_dirs\":true}}}",
+        "{\"summary\":\"Write a concise README.\",\"action\":{\"type\":\"tool_call\",\"tool_name\":\"text_file_writer\",\"arguments\":{\"path\":\"README.md\",\"content\":\"# Python Notes CLI\\n\\nUsage:\\n\\n- `python notes.py`\\n- notes persist in `notes.json`\\n\",\"action\":\"create\",\"confirm\":true,\"overwrite\":true,\"create_dirs\":true}}}",
+        "{\"summary\":\"The required files are in place.\",\"action\":{\"type\":\"final\",\"message\":\"Created notes.py and README.md for the sandbox notes CLI.\"}}"
+      ]
+    },
+    "bad": {
+      "mock_responses": [
+        "{\"summary\":\"Read the task card.\",\"action\":{\"type\":\"tool_call\",\"tool_name\":\"text_file_reader\",\"arguments\":{\"path\":\"_docs/TASK_CARD.md\"}}}",
+        "{\"summary\":\"Write the wrong file intentionally for deterministic failure coverage.\",\"action\":{\"type\":\"tool_call\",\"tool_name\":\"text_file_writer\",\"arguments\":{\"path\":\"todo.py\",\"content\":\"print('wrong artifact')\\n\",\"action\":\"create\",\"confirm\":true,\"overwrite\":true,\"create_dirs\":true}}}",
+        "{\"summary\":\"Claim completion even though the expected artifacts are missing.\",\"action\":{\"type\":\"final\",\"message\":\"Completed the task.\"}}"
+      ]
+    }
+  },
+  "live_compatible": true
+}

@@ -1,6 +1,6 @@
 # IMPLEMENTATION_ROADMAP.md
 
-> **Status:** Living roadmap. T5/T5.1/T6/T6.1/T7 are complete; schema v9 runtime tracing is parked, continuity is current, and T8 is next. References Tranche A output at `_docs/INCORPORATION_INVENTORY.md`.
+> **Status:** Living roadmap. T5/T5.1/T6/T6.1/T7/T8/T8.1 are complete; schema v10 training/evaluation state is parked, continuity is current, and T9 is next. References Tranche A output at `_docs/INCORPORATION_INVENTORY.md`.
 
 ---
 
@@ -431,7 +431,16 @@ T4 proved the approval loop and handoff doctrine, but it did **not** finish the 
 - Recovery classes and retry guidance surface in the Tk operator shell.
 - Final claims can be grounded in touched paths, evidence, journal refs, or explicit `no_mutation_trace` records.
 
-### **Tranche 8 — Teaching Sandbox + Training Runway**
+### **Tranche 8 — Teaching Sandbox + Training Runway** — ✓ COMPLETE (2026-05-14)
+
+**Status:** COMPLETE. Smoke test PASS with dedicated T8 sections. The sidecar now has a minimal teaching/evaluation substrate built on top of T7 run traces.
+
+**Evidence:**
+- live proof scenario run: `scenario_run_18af479b5372cfec_9413c8e0`
+- linked live run id: `local_run_20260514T003830366Z`
+- live proof scorecard: `scorecard_18af479efb34d72c_bf9535e8`
+- reviewer export: `exports/training_runway/training_review_python_notes_cli_20260514T003845980Z.md`
+- live proof outcome: `fail` with `malformed_tool_call`
 
 **Scope:** Reincorporate deterministic training/evaluation infrastructure as part of the substrate, not as a separate experimental branch.
 
@@ -441,10 +450,35 @@ T4 proved the approval loop and handoff doctrine, but it did **not** finish the 
 - training-runway docs for scenario review, pass/fail taxonomy, and operator protocol
 - projection and UI additions needed to inspect sandbox runs without leaving the sidecar shell
 
-**Completion criteria:**
+**What landed:**
+- schema v10: `teaching_scenario_runs`, `teaching_scenario_run_trace_links`, `teaching_scorecards`, `teaching_reviewer_exports`
+- `TrainingRunwayManager`
+- tracked seed scenarios under `training_scenarios/definitions/`
+- disposable sandbox materialization under `workspaces/teaching_sandbox/projects/`
+- structured scorecards + reviewer exports linked to T7 run traces, evidence refs, and journal entries
+- `training_runway` projection
+- CLI commands for scenario list/show/create/run/verify/show-scorecard/export/compare
+- Tk Training Runway panel
+
+**Completion criteria met:**
 - A minimal scenario set runs through the local agent deterministically.
 - Scorecards, trace links, evidence refs, and journal records are produced for review.
 - Training docs explain the reviewer protocol to a cold team.
+- One live Ollama proof is documented as tranche evidence.
+
+### **Tranche 8.1 — Post-Park Training Handoff Alignment** — ✓ COMPLETE (2026-05-14)
+
+**Status:** COMPLETE. Small post-T8 continuity tranche that reconciled roadmap parsing and parked handoff/bootstrap surfaces after the training runway landed.
+
+**What landed:**
+- roadmap parsing now falls back from file/surface lists to completion criteria and scope sentences when deriving `next_planned_steps_json`
+- `agent_bootstrap` and smoke retain concrete T9 next-step visibility even when the next tranche is described in proof-oriented terms
+- continuity docs now reflect T8.1 as the latest parked tranche while preserving T9 as the next substantive horizon
+
+**Completion criteria met:**
+- `agent_bootstrap.next_planned_steps_json` is non-empty with T9 as the next horizon
+- smoke passes after the parser fix
+- the branch returns to a no-active-tranche parked state
 
 ### **Tranche 9 — Installed-Project Proof + Vendability Seal**
 
@@ -490,7 +524,7 @@ Deferred work must not live only in chat or in scattered prose. Each item below 
 
 (Per inventory §1.1, item 1.8 — adopted as a lightweight pattern.)
 
-### Active scope (T1–T7 complete; T8 next)
+### Active scope (T1–T8.1 complete; T9 next)
 - Spine integrity (envelope, router, contract gate, event log, graph, projections).
 - LTM operational (journal, projections, project_index).
 - Read-only MCP for external agents.
