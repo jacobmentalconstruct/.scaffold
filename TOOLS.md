@@ -1,6 +1,6 @@
 # TOOLS.md — Tool Index
 
-> **Status:** T8 complete. 7 tools registered. Source of truth for each tool's metadata is the `FILE_METADATA` block in its source file; this index is a navigational mirror, regenerated as part of every tranche's Park Phase (see `ARCHITECTURE.md §12.2`).
+> **Status:** T9 complete. 7 tools registered. Source of truth for each tool's metadata is the `FILE_METADATA` block in its source file; this index is a navigational mirror, regenerated as part of every tranche's Park Phase (see `ARCHITECTURE.md §12.2`). T9 did not widen the tool belt; it proved vendability using the existing governed tool floor.
 
 ---
 
@@ -29,7 +29,7 @@ Each tool entry includes: `tool_name`, `category`, one-line summary, `mcp_name`,
 
 ## Registered tools
 
-7 tools registered. The sidecar still keeps the runtime tool floor intentionally narrow. T8 adds a training/evaluation substrate around those same tools rather than expanding the belt prematurely.
+7 tools registered. The sidecar still keeps the runtime tool floor intentionally narrow. T8 added a training/evaluation substrate around those same tools, and T9 proved installed vendability without expanding the belt prematurely.
 
 | tool_name | category | summary | mcp_name | required_authority | file |
 |---|---|---|---|---|---|

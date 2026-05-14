@@ -12,16 +12,19 @@
 - Durable runtime trace for local-agent runs, rounds, runtime events, touched paths, grounded claims, recovery classes, and explicit retry lineage.
 - Operator cockpit visibility through `runtime_cockpit`, CLI run-inspection commands, and the Tk local-agent panel.
 - Teaching Sandbox + Training Runway substrate with tracked scenarios, deterministic mocked pass/fail runs, scorecards, reviewer exports, and Tk/CLI/projection visibility.
+- Fresh installed-project vendability proof with a governed host mutation, trace/evidence/journal/projection chain, and cold-team handoff packet.
 
 ## Active horizon
 
-T9 is the active horizon: the next step is to prove vendability in a fresh installed project now that the sidecar can observe, act, trace, and evaluate its own local agent behavior.
+T10 is the active horizon: post-baseline hardening and optional expansion only after the vendable substrate baseline has already been proven.
 
 The deferred backlog is now explicitly tranche-mapped in `IMPLEMENTATION_ROADMAP.md` and mirrored into open journal todos so carry-forward work is visible in the UI, projections, and handoff flow.
 
-## What still separates this branch from superseding the old experiment
+## What still separates this branch from broader deployment confidence
 
-- fresh installed-project proof that this branch can replace the older system end to end
+- longer concurrent Tk + MCP + local-agent stress proof
+- migration-harness and snapshot-policy hardening
+- optional transport and tooling expansion only if later work justifies it
 
 ## End-state north star
 

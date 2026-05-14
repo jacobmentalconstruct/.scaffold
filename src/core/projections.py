@@ -63,6 +63,7 @@ class ProjectionManager:
         self._builders["handoff"] = self._build_handoff
         self._builders["runtime_cockpit"] = self._build_runtime_cockpit
         self._builders["training_runway"] = self._build_training_runway
+        self._builders["installed_project_proof"] = self._build_installed_project_proof
         # Stub builders for other projections (just stamp the timestamp).
         for name in PROJECTION_NAMES:
             if name not in self._builders:
@@ -913,6 +914,7 @@ class ProjectionManager:
                 {"id": "localagent", "label": "Local Agent", "count": 1},
                 {"id": "training", "label": "Training Runway", "count": 1},
                 {"id": "handoff", "label": "Handoff", "count": 1},
+                {"id": "installedproof", "label": "Installed Proof", "count": 1},
                 {"id": "events", "label": "Envelopes", "count": event_count},
                 {"id": "tools", "label": "Tool Invocations", "count": tool_invocation_count},
                 {"id": "tranches", "label": "Tranches", "count": tranche_count},
@@ -1068,6 +1070,7 @@ class ProjectionManager:
             "python -m src.app cli projection agent_bootstrap",
             "python -m src.app cli projection runtime_cockpit",
             "python -m src.app cli projection training_runway",
+            "python -m src.app cli projection installed_project_proof",
             "python -m src.app cli journal-query --kind todo --status open",
             "python -m src.app ui",
         ]
@@ -1210,6 +1213,40 @@ class ProjectionManager:
                 safe_json_dumps(summary.get("pass_fail_counts", {})),
                 safe_json_dumps(summary.get("latest_live_proof", {})),
                 safe_json_dumps(summary.get("reviewer_export_handles", [])),
+                ts,
+            ),
+        )
+
+    def _build_installed_project_proof(self) -> None:
+        ts = now_iso()
+        summary = (
+            self._state.installed_project_proof_manager.summary(limit=5)
+            if getattr(self._state, "installed_project_proof_manager", None)
+            else {
+                "fixture_summary": {},
+                "latest_proof": {},
+                "recent_proofs": [],
+                "verification_result": {},
+                "handoff_status": {},
+                "supersession_status": {},
+            }
+        )
+        self._store.execute("DELETE FROM proj_installed_project_proof;")
+        self._store.execute(
+            """
+            INSERT OR REPLACE INTO proj_installed_project_proof(
+                id, fixture_summary_json, latest_proof_json, recent_proofs_json,
+                verification_result_json, handoff_status_json, supersession_status_json,
+                last_refreshed_at
+            ) VALUES (1, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                safe_json_dumps(summary.get("fixture_summary", {})),
+                safe_json_dumps(summary.get("latest_proof", {})),
+                safe_json_dumps(summary.get("recent_proofs", [])),
+                safe_json_dumps(summary.get("verification_result", {})),
+                safe_json_dumps(summary.get("handoff_status", {})),
+                safe_json_dumps(summary.get("supersession_status", {})),
                 ts,
             ),
         )

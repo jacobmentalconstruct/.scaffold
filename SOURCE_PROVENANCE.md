@@ -340,3 +340,25 @@ A bundle of structural borrows committed during the planning phase. Full per-ite
   - patched `src/core/projections.py` so roadmap parsing preserves concrete next-step output for `agent_bootstrap` even when the upcoming tranche is defined by completion criteria rather than a file list
   - updated continuity docs to reflect the T8.1 parked state while keeping T9 as the next substantive horizon
 - **Borrow/adaptation notes:** none beyond the existing continuity doctrine in this branch; this was a substrate-native fix
+
+## 2026-05-14 — T9 Installed-Project Proof + Vendability Seal
+
+- **Status:** T9 ✓ COMPLETE. The branch now has a proven installed-project baseline and formally supersedes the older experiment as the default installable substrate.
+- **Original implementation in this branch:**
+  - `src/managers/installed_project_proof_manager.py`
+  - `src/ui/installed_project_proof_panel.py`
+  - schema v11 `installed_project_proofs` state in `src/components/sqlite_store.py`
+  - installed-context boot/root resolution in `src/app.py`
+  - trust-gate hardening for installed host writes in `src/core/contracts.py`
+  - `installed_project_proof` projection and CLI surfaces
+  - installed-proof smoke coverage and proof-fixture/handoff export flow
+- **Fresh host proof artifacts:**
+  - proof run id: `proof_run_18af6bba61f19740_953e88c4`
+  - linked local-agent run ids: `local_run_20260514T114059490Z`, `local_run_20260514T114102189Z`
+  - approval request / grant: `approval_18af6bc2a5d254b0_86ecc546` / `grant_18af6bc2b8e7ea74_0cfa1c16`
+  - hunk ref: `hunk_18af6bc347f5fcd8_7698bda5`
+  - tranche journal entry: `journal_18af6bc349622448_23e909ec`
+- **Structural borrow / adaptation notes:**
+  - the idea of proving the substrate by installing it into a disposable host-like target continues the predecessor experiment’s “teach by doing” instinct
+  - the actual installed-proof runner, installed-context boot semantics, projection, UI panel, and smoke path were written fresh on the current spine rather than ported from precursor code
+- **Why this matters:** T9 is the tranche where `.scaffold` stops being only the project-under-construction and becomes the proven substrate that can be installed into other projects and handed to a cold team without chat context.

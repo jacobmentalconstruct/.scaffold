@@ -1,6 +1,6 @@
 # IMPLEMENTATION_ROADMAP.md
 
-> **Status:** Living roadmap. T5/T5.1/T6/T6.1/T7/T8/T8.1 are complete; schema v10 training/evaluation state is parked, continuity is current, and T9 is next. References Tranche A output at `_docs/INCORPORATION_INVENTORY.md`.
+> **Status:** Living roadmap. T5/T5.1/T6/T6.1/T7/T8/T8.1/T9 are complete; schema v11 installed-project proof state is parked, vendability baseline is achieved, continuity is current, and T10 is the next optional horizon. References Tranche A output at `_docs/INCORPORATION_INVENTORY.md`.
 
 ---
 
@@ -480,16 +480,47 @@ T4 proved the approval loop and handoff doctrine, but it did **not** finish the 
 - smoke passes after the parser fix
 - the branch returns to a no-active-tranche parked state
 
-### **Tranche 9 — Installed-Project Proof + Vendability Seal**
+### **Tranche 9 — Installed-Project Proof + Vendability Seal** — ✓ COMPLETE (2026-05-14)
 
-**Scope:** Prove this branch can replace the older system as the default operating substrate for new projects.
+**Status:** COMPLETE. Smoke test PASS with dedicated T9 installed-context sections. `.scaffold` now has a proven installed-project baseline and formally supersedes the older experiment as the default installable substrate.
 
-**Completion criteria:**
+**Evidence:**
+- park notes: [`_docs/T9_PARK_NOTES.md`](_docs/T9_PARK_NOTES.md)
+- proof run id: `proof_run_18af6bba61f19740_953e88c4`
+- linked local-agent run ids: `local_run_20260514T114059490Z`, `local_run_20260514T114102189Z`
+- approval request / grant: `approval_18af6bc2a5d254b0_86ecc546` / `grant_18af6bc2b8e7ea74_0cfa1c16`
+- hunk ref: `hunk_18af6bc347f5fcd8_7698bda5`
+- tranche journal entry: `journal_18af6bc349622448_23e909ec`
+
+**What landed:**
+- schema v11 with `installed_project_proofs`
+- `InstalledProjectProofManager`
+- clean installed-context project-root resolution for `<host>/.scaffold`
+- trust-gate hardening for host-project write containment in installed mode
+- clean-install migration overlap tolerance for additive duplicate-column cases
+- `installed_project_proof` projection
+- CLI installed-proof commands
+- Tk Installed Proof panel
+- canonical tiny installed-host fixture at `workspaces/installed_project_proof/tiny_notes_app/`
+- cold-team handoff export for the installed proof
+
+**Completion criteria met:**
 - One fresh installed-project proving loop completes end to end.
 - The result can be handed to an ignorant team using only the docs, DB, UI, and verification commands already in the repo.
 - The old experiment is formally superseded by this branch.
 
-**Substrate baseline is achieved when T9 completes and the user signs off on the installed-project proof.**
+**Substrate baseline is achieved.**
+
+### **Tranche 10 — Post-Baseline Hardening + Optional Expansion**
+
+**Scope:** Only the remaining trust/perf/expansion items that still matter after the vendability seal. T10 is a post-baseline horizon, not a missing baseline tranche.
+
+**Initial candidates:**
+- longer concurrent Tk + MCP + local-agent stress proof
+- migration-harness hardening
+- snapshot policy and snapshot command adoption
+- remaining authority/bootstrap cleanup outside session-backed actors
+- optional tooling/transport expansion only if justified by real use
 
 ---
 
@@ -499,18 +530,18 @@ Deferred work must not live only in chat or in scattered prose. Each item below 
 
 | Deferred item | Target tranche / horizon | Why it is deferred / what it unlocks |
 |---|---|---|
-| Generic actor bootstrap hardening beyond session-backed rows | T8 | T5 created explicit authorities rows for session-backed actors; finish removing default-by-prefix dependence outside that path. |
-| Concurrent Tk + MCP + local-agent workload verification | T8 / T9 | T5 and T7 proved the floor; longer soak and heavier concurrency stress still need a dedicated hardening pass. |
+| Generic actor bootstrap hardening beyond session-backed rows | T10 | T5 created explicit authorities rows for session-backed actors; finish removing default-by-prefix dependence outside that path. |
+| Concurrent Tk + MCP + local-agent workload verification | T10 | T5 and T7 proved the floor; T9 proved installed vendability; a longer soak still needs a dedicated post-baseline hardening pass. |
 | `src/components/patch_applier.py` | T6 | Pairs with diff proposals so approved text changes can apply as structured hunks. |
-| Per-hunk line provenance + diff evidence linkage refinements | T8 | Exact hunk rows exist after T6; remaining work is deeper decision/evidence linkage and any optional summaries. |
+| Per-hunk line provenance + diff evidence linkage refinements | T10 | Exact hunk rows exist after T6; remaining work is deeper decision/evidence linkage and any optional summaries. |
 | `src/components/test_runner.py` | T6 | Enables bounded verification runs as part of local-agent workflows. |
 | `src/orchestrators/scaffold_orchestrator.py` | T6 | Deepens guarded mutation beyond the T4 workspace-first file-write floor. |
-| Contract revision-aware seed / contract versioning | T8 / T9 | Replaces in-place contract upsert with explicit supersession semantics. |
+| Contract revision-aware seed / contract versioning | T10 | Replaces in-place contract upsert with explicit supersession semantics. |
 | Constraint decomposition tooling + `src/managers/ontology_manager.py` | T6+ | Helpful for richer reasoning and object typing, but not critical before the first local-agent loop. |
 | Run trace spine + `recovery_class` consumption | ✓ COMPLETE at T7 | Local-agent runs are now inspectable, classifiable, grounded, and explicitly retryable. |
-| HARD_BLOCK enforcement hardening | T8 / T9 | Move from advisory gate checks to stricter end-to-end enforcement where appropriate. |
-| Snapshot cadence decision + snapshot orchestrator adoption | T8 / T9 | Needed once runtime trace/recovery and audit expectations rise. |
-| Schema migration test harness | T8 | Raises confidence as the schema and runtime surfaces become more stateful. |
+| HARD_BLOCK enforcement hardening | T10 | T9 tightened the installed proof path; broader end-to-end enforcement can continue post-baseline. |
+| Snapshot cadence decision + snapshot orchestrator adoption | T10 | Needed once runtime trace/recovery and audit expectations rise beyond baseline proof. |
+| Schema migration test harness | T10 | T9 added minimal fresh-install confidence; a fuller migration harness remains post-baseline hardening. |
 | Teaching Sandbox + Training Runway | T8 | Rebuild deterministic training/eval on top of the cleaned-up substrate. |
 | Remaining precursor tools beyond the current registry | T6+ on a case basis | Only adopt tools that materially strengthen the substrate; do not bulk-port the precursor. |
 | Optional HTTP MCP transport evaluation | T9+ / Phase 2 | `stdio` is the default vendable path; HTTP remains optional future expansion only if justified. |
@@ -524,7 +555,7 @@ Deferred work must not live only in chat or in scattered prose. Each item below 
 
 (Per inventory §1.1, item 1.8 — adopted as a lightweight pattern.)
 
-### Active scope (T1–T8.1 complete; T9 next)
+### Active scope (T1–T9 complete; baseline achieved)
 - Spine integrity (envelope, router, contract gate, event log, graph, projections).
 - LTM operational (journal, projections, project_index).
 - Read-only MCP for external agents.
@@ -533,8 +564,9 @@ Deferred work must not live only in chat or in scattered prose. Each item below 
 - Local Ollama sidecar runtime with bootstrap parity, approval-aware bounded writes, and operator controls.
 - Sandboxed file writes via `workspaces/`.
 - Smoke-tested proving loop.
+- Installed-project proof runner, projection, Tk panel, and cold-team handoff export proving vendability from a fresh host context.
 
-### Supersession horizons (T5+)
+### Post-baseline horizons (T10+)
 - Bag / Shelf evidence overflow + sliding-window agent memory management.
 - Diff/patch infrastructure beyond simple writes.
 - Snapshot system (Merkle-rooted DB snapshots).
@@ -547,7 +579,7 @@ Deferred work must not live only in chat or in scattered prose. Each item below 
 ### Explicit non-goals
 - No tool that mutates the host project tree without `Apply` authority + explicit per-envelope human approval.
 - No external runtime dependencies beyond Python stdlib (per contract Pledge 1).
-- No sub-agents, web browsing, image generation, or full terminal parity in Phase 1.
+- No sub-agents, web browsing, image generation, or full terminal parity in the substrate baseline.
 
 ---
 

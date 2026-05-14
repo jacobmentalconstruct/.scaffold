@@ -1,6 +1,6 @@
 # ARCHITECTURE.md — Design Truth
 
-> **Status:** Revised through T5. Folds in the Memory Model + Operational Rituals + Cross-cutting Principles + Constraint Registry from precursor doctrine review (see [`_docs/INCORPORATION_INVENTORY.md`](_docs/INCORPORATION_INVENTORY.md)). The original Tranche 0 design (sections 1–11 below, renumbered) is preserved where it still matches shipped behavior; later tranches update the document as the substrate becomes real.
+> **Status:** Revised through T9. The substrate baseline is now proven in both development scope and fresh installed-project scope. Folds in the Memory Model + Operational Rituals + Cross-cutting Principles + Constraint Registry from precursor doctrine review (see [`_docs/INCORPORATION_INVENTORY.md`](_docs/INCORPORATION_INVENTORY.md)). The original Tranche 0 design (sections 1–11 below, renumbered) is preserved where it still matches shipped behavior; later tranches update the document as the substrate becomes real.
 
 > The code in `src/` is being scaffolded toward this design. As code lands, this document remains the authoritative source for *intent*; the code is the authoritative source for *behavior*. Drift between the two is a defect.
 
@@ -500,16 +500,25 @@ See [`src/managers/constraint_manager.py`](src/managers/constraint_manager.py) f
 - **Outcome-driven roadmap parsing for handoff/bootstrap** — RESOLVED: `agent_bootstrap.next_planned_steps_json` now falls back from file/surface lists to completion criteria and scope sentences, so the next tranche remains visible even when the roadmap is written in proof-oriented terms.
 - **Post-park continuity alignment after T8** — RESOLVED: smoke, handoff, bootstrap, and fast-pickup surfaces now agree mechanically on T9 as the next horizon after the training tranche closes.
 
+### Resolved at T9 (2026-05-14)
+
+- **Installed-context vendability proof** — RESOLVED: the sidecar now proves itself inside a fresh host fixture by installing a clean `.scaffold`, booting in installed context, acknowledging the contract, scanning/indexing, hydrating projections and Tk, completing a governed proposal → approval → bounded host mutation loop, and exporting a cold-team handoff packet.
+- **Installed-context project root semantics** — RESOLVED: when the sidecar boots from `<host>/.scaffold`, the host project is now inferred as `project_root` automatically instead of defaulting to the sidecar root.
+- **Installed proof projection and operator surface** — RESOLVED: `installed_project_proof` plus the CLI/Tk installed-proof surfaces make the vendability chain inspectable without raw DB access.
+- **Trust-gate hardening on the proof path** — RESOLVED for baseline: installed-mode host writes are now blocked from targeting the sidecar runtime subtree while still permitting the intended bounded host-proof mutation and disposable sandbox targets.
+- **Clean fresh-install bootstrap confidence** — RESOLVED for baseline: schema migration overlap handling now tolerates additive duplicate-column cases uncovered by clean installed copies, so a fresh vendable `.scaffold` can boot cleanly instead of only upgraded development DBs.
+- **Formal supersession** — RESOLVED: T9 is the tranche where this branch becomes the authoritative successor to the old experiment as the default installable substrate baseline.
+
 ### Still open (deferred to later tranches)
 
 Every item below must be mapped in `IMPLEMENTATION_ROADMAP.md` and tracked as an open `kind='todo'` journal entry until resolved or deliberately superseded.
 
-- **Concurrent multi-process behavior** — Target tranche: **T9**. T5, T7, and T8 exercised the shared spine across Tk, MCP, local runtime, and training surfaces, but a longer soak and heavier concurrent stress run are still needed before vendability proof.
-- **MCP transport expansion** — Target horizon: **T9+ / Phase 2 optional**. `stdio` is the current vendable default. HTTP transport is no longer an open MVP decision; it is optional future expansion only if a later tranche justifies it.
-- **Snapshot cadence** — Target tranche: **T9**. Decide whether snapshots happen on tranche close, on demand, or both when building the snapshot orchestrator.
-- **Schema migration test harness** — Target tranche: **T9**. Still deferred after T8; needed before installed-project vendability proof.
-- **Bag/Shelf overflow hardening** — Target tranche: **T9**. Core STM overflow and shelf derivation are implemented; remaining work is polish, retrieval ergonomics, and follow-up adjustments discovered after T6/T7/T8.
-- **HARD_BLOCK gate enforcement** — Target tranche: **T9**. `ContractAuthority._check_hard_block` is still advisory; stricter end-to-end enforcement needs a dedicated hardening pass.
-- **Contract-revision-aware seed** — Target tranche: **T9**. When contract markdown changes, `seed_from_contract` should move from upsert-in-place to explicit versioning + `supersedes` semantics.
-- **Authorities table empty-by-default outside session-backed actors** — Target tranche: **T9**. T5 created explicit authorities rows for session-backed local/MCP actors, but non-session actors can still fall back to default-by-prefix behavior.
-- **Per-hunk change summaries in evidence** — Target tranche: **T9**. Exact hunk rows now exist with file + old/new line ranges + raw diff text refs. The remaining refinement is linking them more deeply to `decision_records` and optionally generating compact summaries into the evidence layer for even faster resume.
+- **Concurrent multi-process behavior** — Target tranche: **T10**. T5, T7, and T8 exercised the shared spine across Tk, MCP, local runtime, and training surfaces, and T9 proved installed vendability; a longer soak still belongs to post-baseline hardening.
+- **MCP transport expansion** — Target horizon: **T10+ / Phase 2 optional**. `stdio` is the current vendable default. HTTP transport is optional future expansion only if a later tranche justifies it.
+- **Snapshot cadence** — Target tranche: **T10**. Decide whether snapshots happen on tranche close, on demand, or both when building the snapshot orchestrator.
+- **Schema migration test harness** — Target tranche: **T10**. T9 added fresh-install confidence; a fuller migration harness remains post-baseline hardening.
+- **Bag/Shelf overflow hardening** — Target tranche: **T10**. Core STM overflow and shelf derivation are implemented; remaining work is polish, retrieval ergonomics, and follow-up adjustments discovered after T6/T7/T8.
+- **HARD_BLOCK gate enforcement** — Target tranche: **T10**. T9 tightened the installed proof path; broader end-to-end enforcement still needs a dedicated hardening pass.
+- **Contract-revision-aware seed** — Target tranche: **T10**. When contract markdown changes, `seed_from_contract` should move from upsert-in-place to explicit versioning + `supersedes` semantics.
+- **Authorities table empty-by-default outside session-backed actors** — Target tranche: **T10**. T5 created explicit authorities rows for session-backed local/MCP actors, but non-session actors can still fall back to default-by-prefix behavior.
+- **Per-hunk change summaries in evidence** — Target tranche: **T10**. Exact hunk rows now exist with file + old/new line ranges + raw diff text refs. The remaining refinement is linking them more deeply to `decision_records` and optionally generating compact summaries into the evidence layer for even faster resume.

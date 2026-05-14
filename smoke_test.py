@@ -64,6 +64,8 @@ def _find_constraint_typo_hits(root: Path) -> dict[str, list[str]]:
             continue
         if any(part in skip_dirs for part in path.parts):
             continue
+        if "installed_project_proof" in path.parts:
+            continue
 
         suffix = path.suffix.lower()
         if suffix in text_exts:
@@ -127,10 +129,15 @@ def main() -> int:
         project_root_label, sidecar_root_label = public_root_labels(
             state.sidecar_root, state.project_root
         )
+        installed_mode = (
+            state.sidecar_root.name == ".scaffold"
+            and state.project_root.resolve() == state.sidecar_root.parent.resolve()
+        )
         _ok(f"sidecar_id={state.sidecar_id}")
         _ok(f"sidecar_root={sidecar_root_label}")
         _ok(f"project_root={project_root_label}")
         _ok(f"schema_version={state.store.schema_version()}")
+        _ok(f"installed_mode={installed_mode}")
     except Exception as e:
         traceback.print_exc()
         failures.append(f"boot failed: {e}")
@@ -349,6 +356,8 @@ def main() -> int:
             _ok(f"  evidence_refs cites the T1 closeout notes blob hash")
         else:
             failures.append(_fail("T1 tranche entry's event lacks the closeout notes hash"))
+    elif installed_mode:
+        _ok("installed context: historical dev-branch T1 closeout journal is not required")
     else:
         failures.append(_fail("no T1 closeout tranche entry found (handoff promise not honored)"))
 
@@ -434,6 +443,8 @@ def main() -> int:
         sample = next((r for r in pm.rows if r.get("path") == "ARCHITECTURE.md"), None)
         if sample:
             _ok(f"  sample: ARCHITECTURE.md kind={sample['kind']} size={sample['size_bytes']}")
+        elif installed_mode:
+            _ok("installed context: project_map is expected to reflect the host project rather than sidecar docs")
         else:
             failures.append(_fail("ARCHITECTURE.md not in project_map projection"))
     else:
@@ -462,6 +473,8 @@ def main() -> int:
     own_index = state.project_index_manager.get("src/app.py")
     if own_index and own_index.kind == "file" and own_index.content_hash:
         _ok(f"src/app.py indexed: hash={own_index.content_hash[:16]}... size={own_index.size_bytes}")
+    elif installed_mode:
+        _ok("installed context: project_index is expected to reflect the host project rather than sidecar source files")
     else:
         failures.append(_fail("src/app.py not in project_index"))
 
@@ -708,6 +721,8 @@ def main() -> int:
                 f"latest tranche entry {latest.entry_uid} has status={latest.status!r} "
                 f"(must be 'closed' per Park Phase step 7)"
             ))
+    elif installed_mode:
+        _ok("installed context: no historical parked tranches recorded yet")
     else:
         failures.append(_fail("no tranche entries found in journal — no Park Phase performed?"))
 
@@ -1111,6 +1126,8 @@ def main() -> int:
         verification_commands = _json2.loads(row.get("verification_commands_json") or "[]")
         if latest_closed.get("title"):
             _ok(f"handoff.latest_closed_tranche={latest_closed['title']}")
+        elif installed_mode:
+            _ok("installed context: handoff latest_closed_tranche may be empty before the first local park")
         else:
             failures.append(_fail("handoff.latest_closed_tranche_json empty"))
         if active_horizon.get("current"):
@@ -1283,6 +1300,8 @@ def main() -> int:
     northstars_text = (sidecar_root / "NORTHSTARS.md").read_text(encoding="utf-8")
     if latest_title and latest_title in where_now_text:
         _ok("WE_ARE_HERE_NOW.md names the latest parked tranche")
+    elif installed_mode:
+        _ok("installed context: WE_ARE_HERE_NOW.md can point at the current shipped baseline before local parks exist")
     else:
         failures.append(_fail("WE_ARE_HERE_NOW.md does not name the latest parked tranche"))
     if "Active horizon:" in where_now_text and "Active horizon" in northstars_text:
@@ -1970,6 +1989,83 @@ def main() -> int:
         import traceback as _tb
         _tb.print_exc()
         failures.append(_fail(f"T8 Tk panel hydration failed: {e}"))
+
+    _section("83. T9: schema v11 applied — installed proof table exists")
+    if state.store.schema_version() >= 11:
+        _ok(f"schema_version={state.store.schema_version()}")
+    else:
+        failures.append(_fail(f"schema_version={state.store.schema_version()} (expected >= 11)"))
+    proof_table = state.store.query_one(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='installed_project_proofs';"
+    )
+    if proof_table is not None:
+        _ok("installed_project_proofs table exists")
+    else:
+        failures.append(_fail("installed_project_proofs table missing"))
+
+    _section("84. T9: installed-project proof loop completes end to end")
+    try:
+        t9_result = state.installed_project_proof_manager.run_proof()
+        if t9_result.get("status") == "ok":
+            _ok(f"installed proof completed: {t9_result.get('proof_run_id', '')}")
+        else:
+            failures.append(_fail(f"installed proof failed: {t9_result}"))
+        t9_verification = t9_result.get("verification", {})
+        if t9_verification.get("ok"):
+            _ok("installed proof verification passed")
+        else:
+            failures.append(_fail(f"installed proof verification failed: {t9_verification}"))
+    except Exception as e:
+        traceback.print_exc()
+        failures.append(_fail(f"T9 installed-project proof raised exception: {e}"))
+        t9_result = {}
+
+    _section("85. T9: installed proof projection is REAL")
+    try:
+        proof_projection = state.projections.refresh("installed_project_proof")
+        proof_row = _first_projection_row(proof_projection.rows)
+        latest_proof = json.loads(proof_row.get("latest_proof_json") or "{}")
+        proof_verification = json.loads(proof_row.get("verification_result_json") or "{}")
+        if latest_proof.get("proof_run_id"):
+            _ok(f"installed_project_proof.latest_proof={latest_proof['proof_run_id']}")
+        else:
+            failures.append(_fail("installed_project_proof.latest_proof_json empty"))
+        if proof_verification.get("ok"):
+            _ok("installed_project_proof verification result shows ok=true")
+        else:
+            failures.append(_fail(f"installed_project_proof verification result unexpected: {proof_verification}"))
+    except Exception as e:
+        traceback.print_exc()
+        failures.append(_fail(f"installed_project_proof projection failed: {e}"))
+        proof_row = {}
+
+    _section("86. T9: Tk installed proof panel hydrates from installed proof projection")
+    try:
+        import tkinter as _tk
+        from src.ui.installed_project_proof_panel import InstalledProjectProofPanel
+
+        bundle = {
+            "installed_project_proof": {
+                "fixture_summary": json.loads(proof_row.get("fixture_summary_json") or "{}"),
+                "latest_proof": json.loads(proof_row.get("latest_proof_json") or "{}"),
+                "recent_proofs": json.loads(proof_row.get("recent_proofs_json") or "[]"),
+                "verification_result": json.loads(proof_row.get("verification_result_json") or "{}"),
+                "handoff_status": json.loads(proof_row.get("handoff_status_json") or "{}"),
+                "supersession_status": json.loads(proof_row.get("supersession_status_json") or "{}"),
+            }
+        }
+        root = _tk.Tk()
+        root.withdraw()
+        panel = InstalledProjectProofPanel(root, state)
+        panel.refresh(bundle)
+        root.update_idletasks()
+        root.update()
+        root.destroy()
+        _ok(f"InstalledProjectProofPanel hydrated from installed_project_proof: {type(panel).__name__}")
+    except Exception as e:
+        import traceback as _tb
+        _tb.print_exc()
+        failures.append(_fail(f"T9 Tk panel hydration failed: {e}"))
 
     _section("RESULT")
     if failures:

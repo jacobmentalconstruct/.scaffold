@@ -92,3 +92,12 @@ Append-only milestone log for humans and agents onboarding cold.
 
 - Fixed roadmap parsing so `agent_bootstrap.next_planned_steps_json` stays populated even when the next tranche is described by proof/outcome criteria instead of a file/surface list.
 - Re-ran continuity validation so smoke, handoff, bootstrap, and fast-pickup docs all agree on T9 as the next horizon after the T8 park.
+
+## 2026-05-14 — T9 Installed-Project Proof + Vendability Seal
+
+- Added schema v11 plus the installed-project proof subsystem and `installed_project_proof` projection.
+- Fixed clean-install migration overlap so a fresh installed `.scaffold` boots cleanly instead of only upgraded development DBs.
+- Corrected installed-context project-root resolution so `<host>/.scaffold` treats the host project as `project_root` automatically.
+- Tightened host-project write hard blocks so installed `.scaffold` cannot write into its own runtime subtree while still allowing disposable sandbox targets.
+- Proved a fresh host loop end to end: install, contract ack, scan, projection/UI hydration, governed proposal, human approval, bounded host mutation, trace/evidence/journal/projection capture, reviewer packet export.
+- Added CLI, projection, Tk, and smoke surfaces for the vendability proof and sealed the old experiment as superseded by this branch.

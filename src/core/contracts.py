@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from src.lib.common import (
@@ -202,6 +203,7 @@ class ContractAuthority:
                 "PENDING",
             ),
         )
+        self._ensure_authority_record(envelope.actor_id)
         # Refresh in-state contract record.
         self.bootstrap()
         return envelope.with_status("completed")
@@ -249,6 +251,27 @@ class ContractAuthority:
         if row:
             return row["base_level"]
         return _default_authority_for(actor_id)
+
+    def _ensure_authority_record(self, actor_id: str) -> None:
+        row = self._store.query_one(
+            "SELECT actor_id FROM authorities WHERE actor_id = ?;",
+            (actor_id,),
+        )
+        if row:
+            return
+        self._store.execute(
+            """
+            INSERT INTO authorities(
+                actor_id, base_level, granted_by, effective_from, effective_until
+            ) VALUES (?, ?, ?, ?, NULL);
+            """,
+            (
+                actor_id,
+                _default_authority_for(actor_id),
+                "system:contract_ack_seed",
+                now_iso(),
+            ),
+        )
 
     def _actor_type(self, actor_id: str) -> str:
         if actor_id.startswith("human:"):
@@ -325,11 +348,42 @@ class ContractAuthority:
         return _tool_scope_matches(scope, tool_name, arguments)
 
     def _check_hard_block(self, unit, envelope: "SidecarEnvelope") -> str | None:
-        """T1: hard-block constraints are advisory in this implementation.
-        Specific enforcement (e.g., path containment for Apply) lives in
-        the relevant managers/orchestrators when those land in T2+.
-        Returning None = no violation detected at the gate.
-        """
+        if envelope.operation_intent != "tool_invoked":
+            return None
+        if not envelope.payload_ref or self._state.blob_store is None:
+            return "tool_invoked envelope missing payload"
+        try:
+            payload = self._state.blob_store.get_json(envelope.payload_ref)
+        except Exception:
+            return "tool_invoked payload unreadable"
+        tool_name = str(payload.get("tool_name", "")).strip()
+        arguments = payload.get("arguments") or {}
+        if not isinstance(arguments, dict):
+            return "tool_invoked arguments must be an object"
+        target_domain = str(arguments.get("target_domain", "workspace")).strip()
+        if tool_name not in {"text_file_writer", "directory_scaffold"} or target_domain != "project":
+            return None
+        if not bool(arguments.get("allow_host_project_write", False)):
+            return "host-project write requires allow_host_project_write=true"
+        requested_path = str(arguments.get("path", "") or arguments.get("root", "")).strip()
+        if not requested_path:
+            return "host-project write requires a target path"
+        project_root = Path(self._state.project_root).resolve()
+        candidate = (project_root / requested_path).resolve()
+        sidecar_root = Path(self._state.sidecar_root).resolve()
+        try:
+            candidate.relative_to(project_root)
+        except ValueError:
+            return "host-project write escapes project_root"
+        try:
+            sidecar_root.relative_to(project_root)
+            try:
+                candidate.relative_to(sidecar_root)
+                return "host-project write may not target .scaffold runtime paths"
+            except ValueError:
+                return None
+        except ValueError:
+            return None
         return None
 
 

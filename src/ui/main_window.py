@@ -18,6 +18,7 @@ from src.lib.common import now_iso
 from src.ui.contracts_panel import ContractsPanel
 from src.ui.evidence_panel import EvidencePanel
 from src.ui.handoff_panel import HandoffPanel
+from src.ui.installed_project_proof_panel import InstalledProjectProofPanel
 from src.ui.journal_panel import JournalPanel
 from src.ui.local_agent_panel import LocalAgentPanel
 from src.ui.project_map_panel import ProjectMapPanel
@@ -330,6 +331,7 @@ class MonitoringConsole(ttk.Frame):
         self._contracts_panel = ContractsPanel(self._notebook, self.state)
         self._local_agent_panel = LocalAgentPanel(self._notebook, self.state)
         self._training_panel = TrainingRunwayPanel(self._notebook, self.state)
+        self._installed_proof_panel = InstalledProjectProofPanel(self._notebook, self.state)
         self._handoff_panel = HandoffPanel(self._notebook)
 
         self._add_tab("dashboard", "Dashboard", self._dashboard)
@@ -340,6 +342,7 @@ class MonitoringConsole(ttk.Frame):
         self._add_tab("contracts", "Contracts", self._contracts_panel)
         self._add_tab("localagent", "Local Agent", self._local_agent_panel)
         self._add_tab("training", "Training Runway", self._training_panel)
+        self._add_tab("installedproof", "Installed Proof", self._installed_proof_panel)
         self._add_tab("handoff", "Handoff", self._handoff_panel)
 
     def _build_status_bar(self) -> None:
@@ -396,6 +399,7 @@ class MonitoringConsole(ttk.Frame):
         self.state.projections.refresh("viewport_state")
         self.state.projections.refresh("handoff")
         self.state.projections.refresh("training_runway")
+        self.state.projections.refresh("installed_project_proof")
 
         viewport_row = _first_row(self.state.projections.read("viewport_state").rows)
         current_state_row = _first_row(self.state.projections.read("current_sidecar_state").rows)
@@ -408,6 +412,7 @@ class MonitoringConsole(ttk.Frame):
         handoff_row = _first_row(self.state.projections.read("handoff").rows)
         runtime_cockpit_row = _first_row(self.state.projections.read("runtime_cockpit").rows)
         training_runway_row = _first_row(self.state.projections.read("training_runway").rows)
+        installed_project_proof_row = _first_row(self.state.projections.read("installed_project_proof").rows)
 
         contract_text = ""
         blob_ref = (self.state.current_contract or {}).get("text_blob_ref")
@@ -459,6 +464,14 @@ class MonitoringConsole(ttk.Frame):
             "latest_live_proof": _loads(training_runway_row.get("latest_live_proof_json"), {}),
             "reviewer_export_handles": _loads(training_runway_row.get("reviewer_export_handles_json"), []),
         }
+        installed_project_proof = {
+            "fixture_summary": _loads(installed_project_proof_row.get("fixture_summary_json"), {}),
+            "latest_proof": _loads(installed_project_proof_row.get("latest_proof_json"), {}),
+            "recent_proofs": _loads(installed_project_proof_row.get("recent_proofs_json"), []),
+            "verification_result": _loads(installed_project_proof_row.get("verification_result_json"), {}),
+            "handoff_status": _loads(installed_project_proof_row.get("handoff_status_json"), {}),
+            "supersession_status": _loads(installed_project_proof_row.get("supersession_status_json"), {}),
+        }
         operator_row = self.state.store.query_one(
             """
             SELECT actor_id FROM acknowledgments
@@ -492,6 +505,7 @@ class MonitoringConsole(ttk.Frame):
             "handoff": handoff,
             "runtime_cockpit": runtime_cockpit,
             "training_runway": training_runway,
+            "installed_project_proof": installed_project_proof,
             "default_operator_actor": operator_row["actor_id"] if operator_row else "human:ui",
         }
 
@@ -548,6 +562,7 @@ class MonitoringConsole(ttk.Frame):
         self._contracts_panel.refresh(bundle)
         self._local_agent_panel.refresh(bundle)
         self._training_panel.refresh(bundle)
+        self._installed_proof_panel.refresh(bundle)
         self._handoff_panel.refresh(bundle)
 
         if current_tab_widget:

@@ -732,6 +732,42 @@ _T8_DDL: tuple[str, ...] = (
 )
 
 
+# ----------------------------------------------------------------------------
+# Migration v11 — T9: Installed-Project Proof + Vendability Seal
+# ----------------------------------------------------------------------------
+
+_T9_DDL: tuple[str, ...] = (
+    """
+    CREATE TABLE IF NOT EXISTS installed_project_proofs (
+        proof_run_id TEXT PRIMARY KEY,
+        fixture_id TEXT NOT NULL,
+        fixture_version TEXT NOT NULL,
+        host_root TEXT NOT NULL,
+        installed_sidecar_root TEXT NOT NULL,
+        status TEXT NOT NULL,
+        install_state_json TEXT NOT NULL DEFAULT '{}',
+        verification_summary_json TEXT NOT NULL DEFAULT '{}',
+        proposal_summary_json TEXT NOT NULL DEFAULT '{}',
+        linked_run_ids_json TEXT NOT NULL DEFAULT '[]',
+        linked_scorecard_ids_json TEXT NOT NULL DEFAULT '[]',
+        linked_evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+        linked_journal_uids_json TEXT NOT NULL DEFAULT '[]',
+        approval_request_id TEXT,
+        approval_grant_id TEXT,
+        touched_paths_json TEXT NOT NULL DEFAULT '[]',
+        hunk_refs_json TEXT NOT NULL DEFAULT '[]',
+        handoff_packet_ref TEXT NOT NULL DEFAULT '',
+        supersession_status TEXT NOT NULL DEFAULT '',
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '{}'
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_installed_project_proofs_started ON installed_project_proofs(started_at DESC);",
+    "CREATE INDEX IF NOT EXISTS idx_installed_project_proofs_status ON installed_project_proofs(status, started_at DESC);",
+)
+
+
 # Migration registry: version → (description, list of statements).
 # Migrations run in version order, idempotent.
 _MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
@@ -745,6 +781,7 @@ _MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
     (8, "T6 STM + Bag of Evidence + Evidence Shelf", _T6_DDL),
     (9, "T7 Run Trace, Recovery, and Operator Cockpit", _T7_DDL),
     (10, "T8 Teaching Sandbox + Training Runway", _T8_DDL),
+    (11, "T9 Installed-Project Proof + Vendability Seal", _T9_DDL),
 )
 
 
@@ -862,7 +899,13 @@ def migrate(store: Store) -> list[int]:
         log.info("applying migration %s: %s", version, description)
         with store.transaction():
             for stmt in statements:
-                store.execute(stmt)
+                try:
+                    store.execute(stmt)
+                except sqlite3.OperationalError as exc:
+                    if _is_safe_duplicate_column(stmt, exc):
+                        log.info("ignoring additive duplicate during migration %s: %s", version, exc)
+                        continue
+                    raise
             for projection in PROJECTION_NAMES:
                 store.execute(table_ddl(projection))
             store.execute(
@@ -879,3 +922,8 @@ def open_store(path: Path) -> Store:
     store = Store(path)
     migrate(store)
     return store
+
+
+def _is_safe_duplicate_column(statement: str, exc: sqlite3.OperationalError) -> bool:
+    message = str(exc).lower()
+    return "duplicate column name" in message and "alter table" in statement.lower()

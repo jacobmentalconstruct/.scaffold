@@ -29,6 +29,7 @@ PROJECTION_NAMES = (
     "handoff",
     "runtime_cockpit",
     "training_runway",
+    "installed_project_proof",
 )
 
 
@@ -183,6 +184,16 @@ PROJECTION_COLUMNS: dict[str, tuple[str, ...]] = {
         "reviewer_export_handles_json TEXT",
         "last_refreshed_at TEXT",
     ),
+    "installed_project_proof": (
+        "id INTEGER PRIMARY KEY CHECK (id = 1)",
+        "fixture_summary_json TEXT",
+        "latest_proof_json TEXT",
+        "recent_proofs_json TEXT",
+        "verification_result_json TEXT",
+        "handoff_status_json TEXT",
+        "supersession_status_json TEXT",
+        "last_refreshed_at TEXT",
+    ),
 }
 
 
@@ -199,11 +210,11 @@ INTENT_AFFECTS_PROJECTIONS: dict[str, tuple[str, ...]] = {
     "observe_git": ("human_dashboard", "viewport_state"),
     "record_observed_file": ("project_map",),
 
-    "tool_invoked": ("current_sidecar_state", "viewport_state", "runtime_cockpit"),
-    "tool_result": ("current_sidecar_state", "viewport_state", "runtime_cockpit"),
-    "request_authority_elevation": ("human_dashboard", "contract_status", "viewport_state", "handoff", "runtime_cockpit"),
-    "approve_authority_request": ("human_dashboard", "contract_status", "viewport_state", "handoff", "runtime_cockpit"),
-    "reject_authority_request": ("human_dashboard", "contract_status", "viewport_state", "handoff", "runtime_cockpit"),
+    "tool_invoked": ("current_sidecar_state", "viewport_state", "runtime_cockpit", "installed_project_proof"),
+    "tool_result": ("current_sidecar_state", "viewport_state", "runtime_cockpit", "installed_project_proof"),
+    "request_authority_elevation": ("human_dashboard", "contract_status", "viewport_state", "handoff", "runtime_cockpit", "installed_project_proof"),
+    "approve_authority_request": ("human_dashboard", "contract_status", "viewport_state", "handoff", "runtime_cockpit", "installed_project_proof"),
+    "reject_authority_request": ("human_dashboard", "contract_status", "viewport_state", "handoff", "runtime_cockpit", "installed_project_proof"),
 
     "create_journal_entry": ("journal_timeline", "human_dashboard", "agent_bootstrap", "viewport_state"),
     "update_journal_entry": ("journal_timeline", "viewport_state"),
@@ -228,10 +239,10 @@ INTENT_AFFECTS_PROJECTIONS: dict[str, tuple[str, ...]] = {
     "record_decision": ("tranche_checklist", "agent_bootstrap", "viewport_state"),
     "smoke_pass":      ("tranche_checklist", "viewport_state"),
     "close_tranche":   (
-        "tranche_checklist", "human_dashboard", "agent_bootstrap", "journal_timeline", "viewport_state", "handoff", "runtime_cockpit", "training_runway",
+        "tranche_checklist", "human_dashboard", "agent_bootstrap", "journal_timeline", "viewport_state", "handoff", "runtime_cockpit", "training_runway", "installed_project_proof",
     ),
-    "declare_tranche": ("tranche_checklist", "human_dashboard", "agent_bootstrap", "viewport_state", "handoff", "runtime_cockpit", "training_runway"),
-    "record_decision": ("tranche_checklist", "agent_bootstrap", "viewport_state", "handoff", "runtime_cockpit", "training_runway"),
+    "declare_tranche": ("tranche_checklist", "human_dashboard", "agent_bootstrap", "viewport_state", "handoff", "runtime_cockpit", "training_runway", "installed_project_proof"),
+    "record_decision": ("tranche_checklist", "agent_bootstrap", "viewport_state", "handoff", "runtime_cockpit", "training_runway", "installed_project_proof"),
 }
 
 

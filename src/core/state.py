@@ -42,6 +42,7 @@ class SidecarState:
     recovery_manager: Any = None
     run_trace_manager: Any = None
     training_runway_manager: Any = None
+    installed_project_proof_manager: Any = None
     tranche_manager: Any = None
     file_scanner: Any = None
     install_orchestrator: Any = None

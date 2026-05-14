@@ -43,6 +43,7 @@ from src.managers.memory_manager import MemoryManager
 from src.managers.recovery_manager import RecoveryManager
 from src.managers.run_trace_manager import RunTraceManager
 from src.managers.training_runway_manager import TrainingRunwayManager
+from src.managers.installed_project_proof_manager import InstalledProjectProofManager
 from src.managers.tool_registry_manager import ToolRegistryManager
 from src.orchestrators.agent_task_orchestrator import AgentTaskOrchestrator
 from src.orchestrators.closeout_orchestrator import CloseoutOrchestrator
@@ -56,8 +57,13 @@ def boot(sidecar_root: Path | None = None,
          project_root: Path | None = None) -> SidecarState:
     """Wire the sidecar spine and return a fully-bootstrapped SidecarState."""
     sidecar_root = Path(sidecar_root) if sidecar_root else detect_sidecar_root()
-    # Development scope per contract §0.10: project_root == sidecar_root.
-    project_root = Path(project_root) if project_root else sidecar_root
+    if project_root:
+        project_root = Path(project_root)
+    elif sidecar_root.name == ".scaffold":
+        project_root = sidecar_root.parent
+    else:
+        # Development scope per contract §0.10: project_root == sidecar_root.
+        project_root = sidecar_root
 
     paths = resolve_paths(sidecar_root)
 
@@ -99,6 +105,7 @@ def boot(sidecar_root: Path | None = None,
     tranche_manager = TrancheManager(store, blob)
     local_agent_runtime = LocalAgentRuntime(state)
     training_runway_manager = TrainingRunwayManager(state)
+    installed_project_proof_manager = InstalledProjectProofManager(state)
     install_orch = InstallOrchestrator(store)
     scan_orch = ScanOrchestrator(file_scanner, project_index_manager, blob)
     agent_task_orch = AgentTaskOrchestrator(journal_manager, blob)
@@ -129,6 +136,7 @@ def boot(sidecar_root: Path | None = None,
     state.recovery_manager = recovery_manager
     state.run_trace_manager = run_trace_manager
     state.training_runway_manager = training_runway_manager
+    state.installed_project_proof_manager = installed_project_proof_manager
     state.file_scanner = file_scanner
     state.install_orchestrator = install_orch
     state.scan_orchestrator = scan_orch

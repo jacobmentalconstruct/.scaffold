@@ -220,6 +220,17 @@ def _build_parser() -> argparse.ArgumentParser:
     p_tscompare = sub.add_parser("training-compare-runs", help="Compare a small set of training scenario runs.")
     p_tscompare.add_argument("--scenario-run-id", action="append", default=[], help="Scenario run id (repeatable).")
 
+    # ---- installed-project proof / vendability -----------------------
+    p_ipc = sub.add_parser("installed-proof-create", help="Create or reset the tiny installed-project proof fixture.")
+    p_ipc.add_argument("--reset", action="store_true", help="Reset the proof fixture before creating it.")
+    sub.add_parser("installed-proof-run", help="Run the full installed-project vendability proof.")
+    p_ipv = sub.add_parser("installed-proof-verify", help="Verify the latest or selected installed-project proof.")
+    p_ipv.add_argument("--proof-run-id", default="", help="Proof run id.")
+    p_ips = sub.add_parser("installed-proof-show", help="Show the latest or selected installed-project proof.")
+    p_ips.add_argument("--proof-run-id", default="", help="Proof run id.")
+    p_ipe = sub.add_parser("installed-proof-export", help="Export the installed-project proof handoff packet.")
+    p_ipe.add_argument("--proof-run-id", default="", help="Proof run id.")
+
     # ---- tranche ledger (T2.5) ----------------------------------------
     p_td = sub.add_parser("tranche-declare", help="Declare a new active tranche.")
     p_td.add_argument("--actor", required=True, help="Actor id.")
@@ -984,6 +995,34 @@ def _cmd_training_compare_runs(state, args) -> int:
     return 0
 
 
+def _cmd_installed_proof_create(state, args) -> int:
+    _print_json(state.installed_project_proof_manager.create_fixture(reset=bool(args.reset)))
+    return 0
+
+
+def _cmd_installed_proof_run(state, args) -> int:
+    result = state.installed_project_proof_manager.run_proof()
+    _print_json(result)
+    return 0 if result.get("status") == "ok" else 1
+
+
+def _cmd_installed_proof_verify(state, args) -> int:
+    result = state.installed_project_proof_manager.verify_proof(proof_run_id=args.proof_run_id or "")
+    _print_json(result)
+    return 0 if result.get("ok") else 1
+
+
+def _cmd_installed_proof_show(state, args) -> int:
+    _print_json(state.installed_project_proof_manager.get_proof(proof_run_id=args.proof_run_id or ""))
+    return 0
+
+
+def _cmd_installed_proof_export(state, args) -> int:
+    result = state.installed_project_proof_manager.export_handoff_packet(proof_run_id=args.proof_run_id or "")
+    _print_json(result)
+    return 0 if result.get("status") == "ok" else 1
+
+
 def _cmd_tranche_declare(state, args) -> int:
     request = {
         "title": args.title,
@@ -1262,6 +1301,11 @@ _COMMANDS = {
     "training-scorecard-show": _cmd_training_scorecard_show,
     "training-review-export": _cmd_training_review_export,
     "training-compare-runs": _cmd_training_compare_runs,
+    "installed-proof-create": _cmd_installed_proof_create,
+    "installed-proof-run": _cmd_installed_proof_run,
+    "installed-proof-verify": _cmd_installed_proof_verify,
+    "installed-proof-show": _cmd_installed_proof_show,
+    "installed-proof-export": _cmd_installed_proof_export,
     # T2.5 Active Tranche Ledger
     "tranche-declare": _cmd_tranche_declare,
     "tranche-status": _cmd_tranche_status,
