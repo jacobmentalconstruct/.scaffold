@@ -1,0 +1,55 @@
+{
+  "scenario_id": "notes_cli_remediation",
+  "scenario_version": "1",
+  "title": "Notes CLI Remediation",
+  "description": "A small remediation-style scenario that asks for a corrected notes CLI file and updated README.",
+  "category": "training",
+  "task_card": "# TASK CARD\n\nA previous notes CLI attempt drifted. Repair it.\n\nRequirements:\n- Read this task card first.\n- Create `notes.py` with `add_note`, `list_notes`, and `main`.\n- Create or update `README.md` so it explicitly mentions `notes.json`.\n- Do not touch sandbox control files.\n",
+  "allowed_tools": [
+    "read_projection",
+    "file_tree_snapshot",
+    "text_file_reader",
+    "text_file_writer"
+  ],
+  "expected_artifacts": [
+    "notes.py",
+    "README.md"
+  ],
+  "seed_files": {
+    "notes.py": "print('broken')\n",
+    "README.md": "# Broken README\n"
+  },
+  "checks": [
+    {
+      "check_id": "notes_repaired",
+      "check_name": "notes.py contains repaired functions",
+      "type": "contains_all",
+      "path": "notes.py",
+      "contains": ["def add_note", "def list_notes", "def main"],
+      "dimension": "artifact_correctness",
+      "weight": 25,
+      "points_possible": 25
+    },
+    {
+      "check_id": "readme_mentions_store",
+      "check_name": "README mentions notes.json",
+      "type": "contains_any",
+      "path": "README.md",
+      "contains": ["notes.json", "Usage"],
+      "dimension": "instruction_following",
+      "weight": 20,
+      "points_possible": 20
+    }
+  ],
+  "mock_variants": {
+    "good": {
+      "mock_responses": [
+        "{\"summary\":\"Read the task card before repairing files.\",\"action\":{\"type\":\"tool_call\",\"tool_name\":\"text_file_reader\",\"arguments\":{\"path\":\"_docs/TASK_CARD.md\"}}}",
+        "{\"summary\":\"Repair notes.py.\",\"action\":{\"type\":\"tool_call\",\"tool_name\":\"text_file_writer\",\"arguments\":{\"path\":\"notes.py\",\"content\":\"import json\\nfrom pathlib import Path\\n\\nSTORE = Path('notes.json')\\n\\ndef add_note(text: str) -> None:\\n    notes = list_notes()\\n    notes.append(text)\\n    STORE.write_text(json.dumps(notes, indent=2), encoding='utf-8')\\n\\ndef list_notes() -> list[str]:\\n    if not STORE.exists():\\n        return []\\n    return json.loads(STORE.read_text(encoding='utf-8'))\\n\\ndef main() -> None:\\n    print(list_notes())\\n\\nif __name__ == '__main__':\\n    main()\\n\",\"action\":\"overwrite\",\"confirm\":true,\"overwrite\":true,\"create_dirs\":true}}}",
+        "{\"summary\":\"Repair the README.\",\"action\":{\"type\":\"tool_call\",\"tool_name\":\"text_file_writer\",\"arguments\":{\"path\":\"README.md\",\"content\":\"# Notes CLI\\n\\nUsage: `python notes.py`\\n\\nData is stored in `notes.json`.\\n\",\"action\":\"overwrite\",\"confirm\":true,\"overwrite\":true,\"create_dirs\":true}}}",
+        "{\"summary\":\"The remediation task is complete.\",\"action\":{\"type\":\"final\",\"message\":\"Repaired the notes CLI files in the sandbox.\"}}"
+      ]
+    }
+  },
+  "live_compatible": true
+}

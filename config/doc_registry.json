@@ -1,0 +1,181 @@
+{
+  "version": "1.0.0",
+  "docs": [
+    {
+      "doc_id": "readme",
+      "canonical_relpath": "README.md",
+      "legacy_aliases": [],
+      "temporal_class": "entry",
+      "surface_kind": "entry_membrane",
+      "authoritative": true,
+      "generated": false,
+      "parser_role": "entry"
+    },
+    {
+      "doc_id": "onboarding",
+      "canonical_relpath": "_docs/continuity/ONBOARDING.md",
+      "legacy_aliases": [],
+      "temporal_class": "continuity",
+      "surface_kind": "active_continuity",
+      "authoritative": true,
+      "generated": false,
+      "parser_role": "reading_order"
+    },
+    {
+      "doc_id": "where_we_are_now",
+      "canonical_relpath": "_docs/continuity/WE_ARE_HERE_NOW.md",
+      "legacy_aliases": [],
+      "temporal_class": "continuity",
+      "surface_kind": "active_continuity",
+      "authoritative": true,
+      "generated": false,
+      "parser_role": "current_state"
+    },
+    {
+      "doc_id": "latest_parked_tranche_md",
+      "canonical_relpath": "_docs/continuity/LATEST_PARKED_TRANCHE.md",
+      "legacy_aliases": [],
+      "temporal_class": "continuity",
+      "surface_kind": "active_continuity",
+      "authoritative": false,
+      "generated": true,
+      "parser_role": "latest_park"
+    },
+    {
+      "doc_id": "latest_parked_tranche_json",
+      "canonical_relpath": "_docs/continuity/LATEST_PARKED_TRANCHE.json",
+      "legacy_aliases": [],
+      "temporal_class": "continuity",
+      "surface_kind": "active_continuity",
+      "authoritative": false,
+      "generated": true,
+      "parser_role": "latest_park"
+    },
+    {
+      "doc_id": "target_state",
+      "canonical_relpath": "_docs/planning/TARGET_STATE.md",
+      "legacy_aliases": [],
+      "temporal_class": "planning",
+      "surface_kind": "active_continuity",
+      "authoritative": true,
+      "generated": false,
+      "parser_role": "target_state"
+    },
+    {
+      "doc_id": "northstars",
+      "canonical_relpath": "_docs/planning/NORTHSTARS.md",
+      "legacy_aliases": [],
+      "temporal_class": "planning",
+      "surface_kind": "active_continuity",
+      "authoritative": true,
+      "generated": false,
+      "parser_role": "northstars"
+    },
+    {
+      "doc_id": "implementation_roadmap",
+      "canonical_relpath": "_docs/planning/IMPLEMENTATION_ROADMAP.md",
+      "legacy_aliases": [],
+      "temporal_class": "planning",
+      "surface_kind": "active_continuity",
+      "authoritative": true,
+      "generated": false,
+      "parser_role": "roadmap"
+    },
+    {
+      "doc_id": "architecture",
+      "canonical_relpath": "_docs/reference/ARCHITECTURE.md",
+      "legacy_aliases": [],
+      "temporal_class": "reference",
+      "surface_kind": "active_continuity",
+      "authoritative": true,
+      "generated": false,
+      "parser_role": "architecture"
+    },
+    {
+      "doc_id": "project_bindings",
+      "canonical_relpath": "_docs/reference/PROJECT_BINDINGS.md",
+      "legacy_aliases": [],
+      "temporal_class": "reference",
+      "surface_kind": "active_continuity",
+      "authoritative": true,
+      "generated": false,
+      "parser_role": "project_bindings"
+    },
+    {
+      "doc_id": "source_provenance",
+      "canonical_relpath": "_docs/reference/SOURCE_PROVENANCE.md",
+      "legacy_aliases": [],
+      "temporal_class": "reference",
+      "surface_kind": "active_continuity",
+      "authoritative": true,
+      "generated": false,
+      "parser_role": "provenance"
+    },
+    {
+      "doc_id": "tools_index",
+      "canonical_relpath": "_docs/reference/TOOLS.md",
+      "legacy_aliases": [],
+      "temporal_class": "reference",
+      "surface_kind": "active_continuity",
+      "authoritative": true,
+      "generated": false,
+      "parser_role": "tool_index"
+    },
+    {
+      "doc_id": "training_runway",
+      "canonical_relpath": "_docs/reference/TRAINING_RUNWAY.md",
+      "legacy_aliases": [],
+      "temporal_class": "reference",
+      "surface_kind": "active_continuity",
+      "authoritative": true,
+      "generated": false,
+      "parser_role": "training_reference"
+    },
+    {
+      "doc_id": "dev_log",
+      "canonical_relpath": "_docs/history/DEV_LOG.md",
+      "legacy_aliases": [],
+      "temporal_class": "history",
+      "surface_kind": "active_continuity",
+      "authoritative": true,
+      "generated": false,
+      "parser_role": "historical_log"
+    },
+    {
+      "doc_id": "incorporation_inventory",
+      "canonical_relpath": "_docs/migration/INCORPORATION_INVENTORY.md",
+      "legacy_aliases": [],
+      "temporal_class": "migration",
+      "surface_kind": "migration_surface",
+      "authoritative": true,
+      "generated": false,
+      "parser_role": "migration_inventory"
+    }
+  ],
+  "collections": [
+    {
+      "collection_id": "history_transitions",
+      "canonical_dir": "_docs/history/transitions",
+      "legacy_dirs": [],
+      "glob": "BRANCH_*_TRANSITION_NOTE_*.md",
+      "temporal_class": "history",
+      "surface_kind": "historical_artifact"
+    },
+    {
+      "collection_id": "history_tranche_markdown",
+      "canonical_dir": "_docs/history/tranches",
+      "legacy_dirs": [],
+      "glob": "T*.md",
+      "temporal_class": "history",
+      "surface_kind": "historical_artifact"
+    },
+    {
+      "collection_id": "history_tranche_json",
+      "canonical_dir": "_docs/history/tranches",
+      "legacy_dirs": [],
+      "glob": "T*.json",
+      "temporal_class": "history",
+      "surface_kind": "historical_artifact"
+    }
+  ]
+}

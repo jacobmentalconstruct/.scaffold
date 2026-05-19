@@ -1,0 +1,19 @@
+{
+  "title": "T10.2 Chat Review Gate Surface",
+  "tranche_id": "tranche_18b0a9cc2d5d3830_2ecda529",
+  "journal_entry_uid": "journal_18b0aa36c0729538_a9988c9b",
+  "journal_created_at": "2026-05-18T12:56:44.945Z",
+  "closed_at": "2026-05-18T12:56:44.945Z",
+  "status": "closed",
+  "park_notes_path": "_docs/history/tranches/T10_2_PARK_NOTES.md",
+  "park_notes_blob_ref": "f76fbb87e03231c3d9e6a7fba0bf97c38571e1f62c1d3e58831949d6bd0bc276",
+  "decisions_count": 2,
+  "files_changed_count": 5,
+  "per_tranche_json_path": "_docs/history/tranches/T10_2_CLOSEOUT_METADATA.json",
+  "per_tranche_markdown_path": "_docs/history/tranches/T10_2_CLOSEOUT_METADATA.md",
+  "latest_json_path": "_docs/continuity/LATEST_PARKED_TRANCHE.json",
+  "latest_markdown_path": "_docs/continuity/LATEST_PARKED_TRANCHE.md",
+  "generated_at": "2026-05-18T12:56:44.946Z",
+  "source": "closeout_orchestrator",
+  "note": "park_notes_blob_ref is the sidecar CAS blob ref, not the Git file SHA for the Markdown park-notes file."
+}

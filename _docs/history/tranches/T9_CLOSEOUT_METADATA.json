@@ -1,0 +1,19 @@
+{
+  "title": "T9 Installed-Project Proof + Vendability Seal",
+  "tranche_id": "tranche_18af48de3d38b1f8_234b2628",
+  "journal_entry_uid": "journal_18af6ca058c9aacc_95d282e2",
+  "journal_created_at": "2026-05-14T11:56:53.774Z",
+  "closed_at": "2026-05-14T11:56:53.775Z",
+  "status": "closed",
+  "park_notes_path": "_docs/history/tranches/T9_PARK_NOTES.md",
+  "park_notes_blob_ref": "060bc52f3a650fff6a149fe62c210f89d716ff0e3ca432815b178ce0aa04ad5c",
+  "decisions_count": 1,
+  "files_changed_count": 17,
+  "per_tranche_json_path": "_docs/history/tranches/T9_CLOSEOUT_METADATA.json",
+  "per_tranche_markdown_path": "_docs/history/tranches/T9_CLOSEOUT_METADATA.md",
+  "latest_json_path": "_docs/continuity/LATEST_PARKED_TRANCHE.json",
+  "latest_markdown_path": "_docs/continuity/LATEST_PARKED_TRANCHE.md",
+  "generated_at": "2026-05-14T12:32:09.519Z",
+  "source": "closeout_orchestrator",
+  "note": "park_notes_blob_ref is the sidecar CAS blob ref, not the Git file SHA for the Markdown park-notes file."
+}

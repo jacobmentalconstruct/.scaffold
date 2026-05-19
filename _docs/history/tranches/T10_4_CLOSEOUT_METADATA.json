@@ -1,0 +1,19 @@
+{
+  "title": "T10.4 HARD_BLOCK and Mutation-Path Trust-Gate Completion",
+  "tranche_id": "tranche_18b0f0480cb283c0_ed32f51f",
+  "journal_entry_uid": "journal_18b0f063cdee64bc_bd85dc71",
+  "journal_created_at": "2026-05-19T10:22:44.258Z",
+  "closed_at": "2026-05-19T10:22:44.270Z",
+  "status": "closed",
+  "park_notes_path": "_docs/history/tranches/T10_4_PARK_NOTES.md",
+  "park_notes_blob_ref": "432c40a1ccf3b0e0d74b635091c068f46bae91312094a65eed81b367c17c759b",
+  "decisions_count": 2,
+  "files_changed_count": 12,
+  "per_tranche_json_path": "_docs/history/tranches/T10_4_CLOSEOUT_METADATA.json",
+  "per_tranche_markdown_path": "_docs/history/tranches/T10_4_CLOSEOUT_METADATA.md",
+  "latest_json_path": "_docs/continuity/LATEST_PARKED_TRANCHE.json",
+  "latest_markdown_path": "_docs/continuity/LATEST_PARKED_TRANCHE.md",
+  "generated_at": "2026-05-19T10:22:44.271Z",
+  "source": "closeout_orchestrator",
+  "note": "park_notes_blob_ref is the sidecar CAS blob ref, not the Git file SHA for the Markdown park-notes file."
+}

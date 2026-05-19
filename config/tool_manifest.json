@@ -1,0 +1,361 @@
+{
+  "manifest_version": "1.0.0",
+  "generated_at": "2026-05-19T11:52:30.272Z",
+  "sidecar_id": "sc_18ae61e3f9a3edcc_44bb8a5d",
+  "tool_count": 8,
+  "tools": [
+    {
+      "tool_name": "directory_scaffold",
+      "version": "1.0.0",
+      "entrypoint": "src/tools/directory_scaffold.py",
+      "category": "scaffold",
+      "summary": "Dry-run-first declarative scaffolding under workspaces or approved project paths.",
+      "mcp_name": "directory_scaffold",
+      "required_authority": "Apply",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          },
+          "confirm": {
+            "type": "boolean",
+            "default": false
+          },
+          "create_parents": {
+            "type": "boolean",
+            "default": true
+          },
+          "validate_files": {
+            "type": "boolean",
+            "default": false
+          },
+          "target_domain": {
+            "type": "string",
+            "enum": [
+              "workspace",
+              "project"
+            ],
+            "default": "workspace"
+          },
+          "allow_host_project_write": {
+            "type": "boolean",
+            "default": false
+          },
+          "protected_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "result_envelope_keys": [
+        "status",
+        "tool",
+        "input",
+        "result"
+      ],
+      "source_hash": "b58ebddcc13cd1fa291a1d78f979021673b0bed953e3aa7d0e5132f9b26ef951",
+      "registered_at": "2026-05-19T11:52:28.374Z"
+    },
+    {
+      "tool_name": "doc_registry_audit",
+      "version": "1.0.0",
+      "entrypoint": "src/tools/doc_registry_audit.py",
+      "category": "introspection",
+      "summary": "Audit canonical doc registry health, alias use, and root clutter drift.",
+      "mcp_name": "doc_registry_audit",
+      "required_authority": "Observe",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "include_hardcoded_hits": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include raw source hits for legacy root doc path strings."
+          }
+        },
+        "additionalProperties": false
+      },
+      "result_envelope_keys": [
+        "status",
+        "tool",
+        "input",
+        "result"
+      ],
+      "source_hash": "598f13bbcc59a15c8239aecd33008d5213aaa301e7c5e3da27124e330b33fb6e",
+      "registered_at": "2026-05-19T11:52:28.375Z"
+    },
+    {
+      "tool_name": "file_tree_snapshot",
+      "version": "1.0.0",
+      "entrypoint": "src/tools/file_tree_snapshot.py",
+      "category": "introspection",
+      "summary": "Snapshot the host project's file tree from project_index.",
+      "mcp_name": "file_tree_snapshot",
+      "required_authority": "Observe",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "file",
+              "directory",
+              "symlink"
+            ],
+            "description": "Optional filter by kind"
+          },
+          "ext": {
+            "type": "string",
+            "description": "Optional file extension filter (e.g. '.py')"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 1000,
+            "description": "Max rows to return"
+          }
+        }
+      },
+      "result_envelope_keys": [
+        "status",
+        "tool",
+        "input",
+        "result"
+      ],
+      "source_hash": "7d04496e9f408b74272411fbe04781bcc01ddd439cf5db5ae0dc3d0467f612dd",
+      "registered_at": "2026-05-19T11:52:28.375Z"
+    },
+    {
+      "tool_name": "host_capability_probe",
+      "version": "1.0.0",
+      "entrypoint": "src/tools/host_capability_probe.py",
+      "category": "introspection",
+      "summary": "Probe Python version, platform, and common-tool availability.",
+      "mcp_name": "host_capability_probe",
+      "required_authority": "Observe",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "result_envelope_keys": [
+        "status",
+        "tool",
+        "input",
+        "result"
+      ],
+      "source_hash": "9da26b4e63861c87fd4aba2fa0b375669aa150822aa7a0a6ec987c1c6f724d89",
+      "registered_at": "2026-05-19T11:52:28.376Z"
+    },
+    {
+      "tool_name": "read_projection",
+      "version": "1.0.0",
+      "entrypoint": "src/tools/read_projection.py",
+      "category": "query",
+      "summary": "Read a named projection; returns its rows + last_refreshed_at.",
+      "mcp_name": "read_projection",
+      "required_authority": "Observe",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Projection name (e.g. 'project_map')"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 200,
+            "description": "Cap on rows returned"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "result_envelope_keys": [
+        "status",
+        "tool",
+        "input",
+        "result"
+      ],
+      "source_hash": "a8de51b51fa4c4104bf219449bbfbe520fafc93416ad1a4d742dd91abe4ceb9f",
+      "registered_at": "2026-05-19T11:52:28.377Z"
+    },
+    {
+      "tool_name": "text_file_reader",
+      "version": "1.0.0",
+      "entrypoint": "src/tools/text_file_reader.py",
+      "category": "introspection",
+      "summary": "Bounded text read of a host-project file.",
+      "mcp_name": "text_file_reader",
+      "required_authority": "Observe",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path relative to project_root."
+          },
+          "max_bytes": {
+            "type": "integer",
+            "default": 65536,
+            "description": "Cap on bytes to read."
+          },
+          "encoding": {
+            "type": "string",
+            "default": "utf-8"
+          },
+          "line_start": {
+            "type": "integer",
+            "description": "Optional 1-based start line"
+          },
+          "line_end": {
+            "type": "integer",
+            "description": "Optional inclusive end line"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "result_envelope_keys": [
+        "status",
+        "tool",
+        "input",
+        "result"
+      ],
+      "source_hash": "837b91e9d94c3cc4e38f0842a40816a3fe0bc0f1cc9f030c834493a3d90273e8",
+      "registered_at": "2026-05-19T11:52:28.377Z"
+    },
+    {
+      "tool_name": "text_file_writer",
+      "version": "1.0.0",
+      "entrypoint": "src/tools/text_file_writer.py",
+      "category": "write",
+      "summary": "Confirmed text writes to sidecar workspaces or approved host-project paths.",
+      "mcp_name": "text_file_writer",
+      "required_authority": "Apply",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string",
+            "default": ""
+          },
+          "body": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "create",
+              "overwrite",
+              "append"
+            ],
+            "default": "create"
+          },
+          "confirm": {
+            "type": "boolean",
+            "default": false
+          },
+          "overwrite": {
+            "type": "boolean",
+            "default": false
+          },
+          "create_dirs": {
+            "type": "boolean",
+            "default": false
+          },
+          "validate_after_write": {
+            "type": "boolean",
+            "default": false
+          },
+          "file_type": {
+            "type": "string"
+          },
+          "target_domain": {
+            "type": "string",
+            "enum": [
+              "workspace",
+              "project"
+            ],
+            "default": "workspace"
+          },
+          "allow_host_project_write": {
+            "type": "boolean",
+            "default": false
+          },
+          "protected_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "result_envelope_keys": [
+        "status",
+        "tool",
+        "input",
+        "result"
+      ],
+      "source_hash": "c8a4f1a0522cf9ee5892a106a1569d304c8a5c6db47a6ca49e82b101434b8d92",
+      "registered_at": "2026-05-19T11:52:28.378Z"
+    },
+    {
+      "tool_name": "workspace_boundary_audit",
+      "version": "1.0.0",
+      "entrypoint": "src/tools/workspace_boundary_audit.py",
+      "category": "introspection",
+      "summary": "Audit project root, sidecar root, and runtime folder containment.",
+      "mcp_name": "workspace_boundary_audit",
+      "required_authority": "Observe",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "result_envelope_keys": [
+        "status",
+        "tool",
+        "input",
+        "result"
+      ],
+      "source_hash": "1717c6225a8f0b5d9ede06164efc1b7b667c1999ad234b9a434b51344430f08b",
+      "registered_at": "2026-05-19T11:52:28.378Z"
+    }
+  ],
+  "categories": {
+    "introspection": [
+      "doc_registry_audit",
+      "file_tree_snapshot",
+      "host_capability_probe",
+      "text_file_reader",
+      "workspace_boundary_audit"
+    ],
+    "query": [
+      "read_projection"
+    ],
+    "scaffold": [
+      "directory_scaffold"
+    ],
+    "write": [
+      "text_file_writer"
+    ]
+  }
+}

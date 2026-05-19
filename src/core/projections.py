@@ -1,0 +1,2040 @@
+"""
+FILE: src/core/projections.py
+ROLE: ProjectionManager — builds read models from events + state.
+WHAT IT DOES: Registry of projection builders, refresh API used by the
+              Router after event commit, read API used by UI/agent.
+              T1 implements builders for current_sidecar_state and
+              contract_status; the rest of the seven day-one projections
+              have empty stub builders that just write last_refreshed_at.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from collections import defaultdict
+from typing import Any, Callable, TYPE_CHECKING
+
+from src.lib.contract_migration import BUNDLE_CATALOG, PRIMARY_CONTRACT_REL, build_inventory, contract_aliases
+from src.lib.doc_registry import (
+    active_doc_ids,
+    active_doc_relpaths,
+    canonical_doc_relpath,
+    collection_records,
+    doc_path,
+    doc_registry_path,
+    doc_relpath,
+    doc_status_records,
+    read_doc_text,
+    resolve_doc,
+    root_alias_paths,
+)
+from src.lib.common import now_iso, safe_json_dumps  # noqa: F401
+from src.lib.bcc_constraint_map import (
+    build_bcc_constraint_projection_row,
+    build_bootstrap_constraint_summary,
+)
+from src.lib.logging_setup import get_logger
+from src.schemas.projection_schema import (
+    PROJECTION_NAMES,
+    affected_projections,
+)
+
+
+if TYPE_CHECKING:
+    from src.components.sqlite_store import Store
+    from src.core.envelope import SidecarEnvelope
+    from src.core.events import EventStore
+    from src.core.graph import Graph
+    from src.core.state import SidecarState
+
+
+log = get_logger("core.projections")
+
+
+@dataclass
+class ProjectionResult:
+    name: str
+    last_refreshed_at: str
+    rows: list[dict]
+
+
+class ProjectionManager:
+    def __init__(self, state: "SidecarState", store: "Store",
+                 events: "EventStore", graph: "Graph"):
+        self._state = state
+        self._store = store
+        self._events = events
+        self._graph = graph
+        self._builders: dict[str, Callable[[], None]] = {}
+        self._register_builtins()
+
+    def _register_builtins(self) -> None:
+        self._builders["current_sidecar_state"] = self._build_current_state
+        self._builders["contract_status"] = self._build_contract_status
+        self._builders["journal_timeline"] = self._build_journal_timeline
+        self._builders["project_map"] = self._build_project_map
+        self._builders["human_dashboard"] = self._build_human_dashboard
+        self._builders["evidence_bag"] = self._build_evidence_bag
+        self._builders["agent_bootstrap"] = self._build_agent_bootstrap
+        self._builders["tranche_checklist"] = self._build_tranche_checklist
+        self._builders["viewport_state"] = self._build_viewport_state
+        self._builders["handoff"] = self._build_handoff
+        self._builders["runtime_cockpit"] = self._build_runtime_cockpit
+        self._builders["training_runway"] = self._build_training_runway
+        self._builders["installed_project_proof"] = self._build_installed_project_proof
+        self._builders["tranche_review_gate"] = self._build_tranche_review_gate
+        self._builders["contract_migration_overview"] = self._build_contract_migration_overview
+        self._builders["contract_bundle_status"] = self._build_contract_bundle_status
+        self._builders["continuity_translation_status"] = self._build_continuity_translation_status
+        self._builders["legacy_reference_register"] = self._build_legacy_reference_register
+        self._builders["doc_registry_status"] = self._build_doc_registry_status
+        self._builders["doc_cutover_readiness"] = self._build_doc_cutover_readiness
+        self._builders["journal_translation_readiness"] = self._build_journal_translation_readiness
+        self._builders["bcc_constraint_map"] = self._build_bcc_constraint_map
+        # Stub builders for other projections (just stamp the timestamp).
+        for name in PROJECTION_NAMES:
+            if name not in self._builders:
+                self._builders[name] = self._stub_builder_for(name)
+
+    # --- public API ---------------------------------------------------
+
+    def list(self) -> list[str]:
+        return list(PROJECTION_NAMES)
+
+    def refresh(self, name: str) -> ProjectionResult:
+        builder = self._builders.get(name)
+        if builder is None:
+            raise KeyError(f"unknown projection: {name}")
+        builder()
+        rows = self._read_rows(name)
+        ts = self._read_last_refreshed(name)
+        result = ProjectionResult(name=name, last_refreshed_at=ts, rows=rows)
+        self._state.set_current_projection(name, {
+            "last_refreshed_at": ts,
+            "row_count": len(rows),
+        })
+        log.debug("projection refreshed: %s rows=%d", name, len(rows))
+        return result
+
+    def refresh_for(self, envelope: "SidecarEnvelope") -> list[str]:
+        names = affected_projections(envelope.operation_intent)
+        # Always refresh current_sidecar_state on every event (cheap).
+        if "current_sidecar_state" not in names:
+            names = names + ("current_sidecar_state",)
+        refreshed: list[str] = []
+        for name in names:
+            try:
+                self.refresh(name)
+                refreshed.append(name)
+            except Exception as e:
+                log.error("projection refresh failed: %s -- %s", name, e)
+        return refreshed
+
+    def read(self, name: str, query: dict | None = None) -> ProjectionResult:
+        rows = self._read_rows(name)
+        ts = self._read_last_refreshed(name)
+        return ProjectionResult(name=name, last_refreshed_at=ts, rows=rows)
+
+    def refresh_all(self) -> list[str]:
+        refreshed = []
+        for name in PROJECTION_NAMES:
+            try:
+                self.refresh(name)
+                refreshed.append(name)
+            except Exception as e:
+                log.error("initial projection refresh failed: %s -- %s", name, e)
+        return refreshed
+
+    # --- builders -----------------------------------------------------
+
+    def _build_current_state(self) -> None:
+        snap = self._state.snapshot()
+        ts = now_iso()
+        self._store.execute("DELETE FROM proj_current_sidecar_state;")
+        self._store.execute(
+            """
+            INSERT OR REPLACE INTO proj_current_sidecar_state(
+                id, project_root, sidecar_root, sidecar_id,
+                current_contract_hash, current_contract_acked,
+                registered_object_count, registered_tool_count,
+                active_task_id, event_log_position,
+                agent_status_json, human_ui_status_json, last_refreshed_at
+            ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                snap["project_root"],
+                snap["sidecar_root"],
+                snap["sidecar_id"],
+                snap.get("current_contract_hash"),
+                1 if snap.get("current_contract_acked") else 0,
+                snap["registered_object_count"],
+                snap["registered_tool_count"],
+                snap.get("active_task_id"),
+                self._events.total_count(),
+                safe_json_dumps(snap.get("agent_status", {})),
+                safe_json_dumps(snap.get("human_ui_status", {})),
+                ts,
+            ),
+        )
+
+    def _build_contract_status(self) -> None:
+        contract = self._state.current_contract or {}
+        ts = now_iso()
+        # Recent contract-related events (acknowledge_contract,
+        # register_constraint, register_profile, seed_constraints).
+        rows = self._store.query(
+            """
+            SELECT event_id, operation_intent, actor_id, created_at
+            FROM events
+            WHERE operation_intent IN
+                ('acknowledge_contract', 'register_constraint',
+                 'register_profile', 'seed_constraints',
+                 'request_authority_elevation',
+                 'approve_authority_request',
+                 'reject_authority_request')
+            ORDER BY created_at DESC LIMIT 20;
+            """
+        )
+        recent = [
+            {
+                "event_id": r["event_id"],
+                "intent": r["operation_intent"],
+                "actor_id": r["actor_id"],
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ]
+        ack_rows = self._store.query(
+            "SELECT actor_id, actor_type, acknowledged_at FROM acknowledgments "
+            "WHERE contract_id = ? AND contract_version = ?;",
+            (contract.get("contract_id", ""), contract.get("version", "")),
+        )
+        acks = [
+            {"actor_id": r["actor_id"], "actor_type": r["actor_type"],
+             "acknowledged_at": r["acknowledged_at"]}
+            for r in ack_rows
+        ]
+        grant_rows = self._store.query(
+            "SELECT grant_id, actor_id, operation_intent, elevated_level, "
+            "expires_at, single_use, consumed FROM grants WHERE consumed = 0;"
+        )
+        outstanding = [dict(r) for r in grant_rows]
+
+        self._store.execute("DELETE FROM proj_contract_status;")
+        self._store.execute(
+            """
+            INSERT OR REPLACE INTO proj_contract_status(
+                id, contract_id, version, text_hash,
+                acks_json, outstanding_grants_json, recent_contract_events_json,
+                last_refreshed_at
+            ) VALUES (1, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                contract.get("contract_id", ""),
+                contract.get("version", ""),
+                contract.get("text_hash", ""),
+                safe_json_dumps(acks),
+                safe_json_dumps(outstanding),
+                safe_json_dumps(recent),
+                ts,
+            ),
+        )
+
+    def _build_journal_timeline(self) -> None:
+        """Rebuild proj_journal_timeline from journal_entries.
+
+        Excludes superseded entries (those are still in journal_entries
+        but considered prior revisions, not current timeline items).
+        """
+        ts = now_iso()
+        # Check journal_entries exists (T2.1 migration adds it).
+        try:
+            rows = self._store.query(
+                """
+                SELECT entry_uid, kind, source, title, body, created_at,
+                       status, importance, tags_json, related_path,
+                       superseded_by, event_id
+                FROM journal_entries
+                WHERE superseded_by IS NULL
+                ORDER BY created_at DESC;
+                """
+            )
+        except Exception as e:
+            log.warning("journal_timeline builder: journal_entries not available yet (%s); skipping", e)
+            return
+
+        with self._store.transaction():
+            self._store.execute("DELETE FROM proj_journal_timeline;")
+            for r in rows:
+                body = r["body"] or ""
+                excerpt = body[:280] + ("..." if len(body) > 280 else "")
+                # Collect any evidence_refs from the creating event.
+                evidence_refs_json = "[]"
+                if r["event_id"] and r["event_id"] != "PENDING":
+                    ev_row = self._store.query_one(
+                        "SELECT evidence_refs FROM events WHERE event_id = ?;",
+                        (r["event_id"],),
+                    )
+                    if ev_row and ev_row["evidence_refs"]:
+                        evidence_refs_json = ev_row["evidence_refs"]
+                self._store.execute(
+                    """
+                    INSERT INTO proj_journal_timeline(
+                        entry_uid, kind, source, title, body_excerpt,
+                        created_at, status, importance, tags_json,
+                        related_path, evidence_refs_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (
+                        r["entry_uid"], r["kind"], r["source"], r["title"],
+                        excerpt, r["created_at"], r["status"],
+                        int(r["importance"]), r["tags_json"] or "[]",
+                        r["related_path"], evidence_refs_json,
+                    ),
+                )
+        # Stamp a meta key so _read_last_refreshed can find it (multi-row
+        # tables don't have a single last_refreshed_at column).
+        self._store.set_meta(f"proj_stub_refreshed_at:journal_timeline", ts)
+
+    def _build_project_map(self) -> None:
+        """Rebuild proj_project_map from project_index.
+
+        Joins journal_entries (citing files via related_path) and the
+        events table (for last observation) to produce annotated rows.
+        """
+        ts = now_iso()
+        try:
+            rows = self._store.query(
+                """
+                SELECT path, kind, size_bytes, content_hash, last_observed_at
+                FROM project_index
+                ORDER BY path;
+                """
+            )
+        except Exception as e:
+            log.warning("project_map builder: project_index not available yet (%s); skipping", e)
+            return
+
+        with self._store.transaction():
+            self._store.execute("DELETE FROM proj_project_map;")
+            for r in rows:
+                cite_row = self._store.query_one(
+                    "SELECT COUNT(*) AS n FROM journal_entries "
+                    "WHERE related_path = ? AND superseded_by IS NULL;",
+                    (r["path"],),
+                )
+                cite_count = int(cite_row["n"]) if cite_row else 0
+                # Evidence count placeholder: how many events touched this path
+                # via evidence_refs? T2.3 will wire this through evidence_manager.
+                evidence_count = 0
+                self._store.execute(
+                    """
+                    INSERT INTO proj_project_map(
+                        path, kind, size_bytes, content_hash,
+                        last_observed_at, journal_cite_count, evidence_count
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (
+                        r["path"], r["kind"], r["size_bytes"], r["content_hash"],
+                        r["last_observed_at"], cite_count, evidence_count,
+                    ),
+                )
+        self._store.set_meta("proj_stub_refreshed_at:project_map", ts)
+
+    def _build_human_dashboard(self) -> None:
+        """Rebuild proj_human_dashboard.
+
+        T2.2 fills: pending_approvals (empty until T4), recent_journal,
+        unresolved_issues, current_tranche_scope (placeholder until we have
+        a current-tranche notion in journal_meta), last_scan_summary.
+        """
+        ts = now_iso()
+
+        # Recent journal: last 10 non-superseded entries.
+        recent_rows = []
+        try:
+            recent_rows = self._store.query(
+                """
+                SELECT entry_uid, kind, title, status, importance, created_at
+                FROM journal_entries
+                WHERE superseded_by IS NULL
+                ORDER BY created_at DESC LIMIT 10;
+                """
+            )
+        except Exception:
+            recent_rows = []
+        recent_journal = [dict(r) for r in recent_rows]
+
+        unresolved_rows = []
+        try:
+            unresolved_rows = self._store.query(
+                """
+                SELECT entry_uid, kind, title, importance, created_at
+                FROM journal_entries
+                WHERE superseded_by IS NULL AND kind IN ('issue', 'todo') AND status = 'open'
+                ORDER BY importance DESC, created_at DESC LIMIT 20;
+                """
+            )
+        except Exception:
+            unresolved_rows = []
+        unresolved_issues = [dict(r) for r in unresolved_rows]
+
+        # Last scan summary: most recent scan row.
+        last_scan = {}
+        try:
+            row = self._store.query_one(
+                "SELECT scan_id, started_at, finished_at, file_count, "
+                "directory_count, added_count, modified_count, removed_count, "
+                "unchanged_count, status, event_id "
+                "FROM scans ORDER BY started_at DESC LIMIT 1;"
+            )
+            if row:
+                last_scan = dict(row)
+        except Exception:
+            last_scan = {}
+
+        # Current tranche scope: read from meta if set; otherwise empty.
+        tranche_scope = {}
+        scope_meta = self._store.get_meta("current_tranche_scope")
+        if scope_meta:
+            try:
+                tranche_scope = json.loads(scope_meta)
+            except Exception:
+                tranche_scope = {"raw": scope_meta}
+
+        pending_approvals = []
+        try:
+            approval_rows = self._store.query(
+                """
+                SELECT request_id, actor_id, requested_level, operation_intent,
+                       summary, justification, requested_at, scope_pattern_json
+                FROM approval_requests
+                WHERE status = 'pending'
+                ORDER BY requested_at ASC;
+                """
+            )
+            pending_approvals = []
+            for row in approval_rows:
+                item = dict(row)
+                item["scope_pattern"] = json.loads(item.pop("scope_pattern_json") or "{}")
+                pending_approvals.append(item)
+        except Exception:
+            pending_approvals = []
+
+        self._store.execute("DELETE FROM proj_human_dashboard;")
+        self._store.execute(
+            """
+            INSERT OR REPLACE INTO proj_human_dashboard(
+                id, pending_approvals_json, recent_journal_json,
+                unresolved_issues_json, current_tranche_scope_json,
+                last_scan_summary_json, last_refreshed_at
+            ) VALUES (1, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                safe_json_dumps(pending_approvals),
+                safe_json_dumps(recent_journal),
+                safe_json_dumps(unresolved_issues),
+                safe_json_dumps(tranche_scope),
+                safe_json_dumps(last_scan),
+                ts,
+            ),
+        )
+
+    def _build_evidence_bag(self) -> None:
+        """Rebuild proj_evidence_bag from the evidence table."""
+        ts = now_iso()
+        try:
+            rows = self._store.query(
+                """
+                SELECT evidence_id, hash, kind, summary, source_event,
+                       attached_to_object, status, created_at
+                FROM evidence
+                ORDER BY created_at DESC;
+                """
+            )
+        except Exception as e:
+            log.warning("evidence_bag builder: evidence table not available yet (%s); skipping", e)
+            return
+
+        with self._store.transaction():
+            self._store.execute("DELETE FROM proj_evidence_bag;")
+            for r in rows:
+                self._store.execute(
+                    """
+                    INSERT INTO proj_evidence_bag(
+                        evidence_id, hash, kind, summary, source_event,
+                        attached_to_object, status, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (
+                        r["evidence_id"],
+                        r["hash"],
+                        r["kind"],
+                        r["summary"] or "",
+                        r["source_event"],
+                        r["attached_to_object"],
+                        r["status"],
+                        r["created_at"],
+                    ),
+                )
+        self._store.set_meta("proj_stub_refreshed_at:evidence_bag", ts)
+
+    def _build_agent_bootstrap(self) -> None:
+        """Rebuild proj_agent_bootstrap — PAST + PRESENT + FUTURE per ARCHITECTURE.md §3.6.
+
+        PAST: recent events, recent journal entries, recent decisions.
+        PRESENT: current task, authority, contract status, tools, projections.
+        FUTURE: current tranche scope, next planned steps, active goals,
+                open questions (parsed from IMPLEMENTATION_ROADMAP.md + ARCHITECTURE.md §15).
+        """
+        import hashlib
+        import re
+        from pathlib import Path as _Path
+        ts = now_iso()
+
+        # ---------- PAST -----------------------------------------------------
+        recent_events_rows = self._store.query(
+            "SELECT event_id, operation_intent, actor_id, stream, created_at "
+            "FROM events ORDER BY created_at DESC LIMIT 20;"
+        )
+        recent_events = [dict(r) for r in recent_events_rows]
+
+        recent_journal: list[dict] = []
+        try:
+            jr = self._store.query(
+                "SELECT entry_uid, kind, title, status, importance, created_at "
+                "FROM journal_entries WHERE superseded_by IS NULL "
+                "ORDER BY importance DESC, created_at DESC LIMIT 10;"
+            )
+            recent_journal = [dict(r) for r in jr]
+        except Exception:
+            pass
+
+        recent_decisions: list[dict] = []
+        try:
+            dr = self._store.query(
+                "SELECT entry_uid, title, body, importance, created_at "
+                "FROM journal_entries WHERE kind = 'decision' AND superseded_by IS NULL "
+                "ORDER BY created_at DESC LIMIT 5;"
+            )
+            for r in dr:
+                d = dict(r)
+                body = d.get("body") or ""
+                d["body_excerpt"] = body[:400] + ("..." if len(body) > 400 else "")
+                d.pop("body", None)
+                recent_decisions.append(d)
+        except Exception:
+            pass
+
+        # ---------- PRESENT --------------------------------------------------
+        current_task: dict = {}
+        try:
+            if self._state.active_task:
+                current_task = dict(self._state.active_task)
+        except Exception:
+            pass
+
+        actor_id = "agent:default"
+        authority_summary = {
+            "default_for_agent": "Propose",
+            "default_for_human": "Apply",
+            "current_grants_count": 0,
+        }
+        try:
+            grant_row = self._store.query_one(
+                "SELECT COUNT(*) AS n FROM grants WHERE consumed = 0;"
+            )
+            authority_summary["current_grants_count"] = int(grant_row["n"]) if grant_row else 0
+        except Exception:
+            pass
+
+        contract = self._state.current_contract or {}
+        contract_status = {
+            "contract_id": contract.get("contract_id"),
+            "version": contract.get("version"),
+            "text_hash": contract.get("text_hash"),
+            "ack_count": len(contract.get("acked_by") or []),
+            "acked_by": (contract.get("acked_by") or [])[:10],
+        }
+
+        tool_index: list[dict] = []
+        try:
+            for t in self._state.tool_registry_manager.list_tools():
+                tool_index.append({
+                    "tool_name": t.tool_name,
+                    "mcp_name": t.mcp_name,
+                    "category": t.category,
+                    "required_authority": t.required_authority,
+                    "summary": t.summary,
+                })
+            tool_index.sort(key=lambda x: x["tool_name"])
+        except Exception:
+            pass
+
+        projection_index = list(PROJECTION_NAMES)
+
+        session_id = _preferred_memory_session_id(self._state, self._store)
+
+        memory_summary = (
+            self._state.memory_manager.session_summary(session_id)
+            if session_id and getattr(self._state, "memory_manager", None)
+            else {
+                "session_id": "",
+                "stm_count": 0,
+                "bag_count": 0,
+                "shelf_count": 0,
+                "recent_stm": [],
+                "recent_bag": [],
+                "evidence_shelf": [],
+                "recent_change_hunks": [],
+            }
+        )
+        self._state.memory_state = {
+            "session_id": memory_summary.get("session_id", ""),
+            "stm_count": memory_summary.get("stm_count", 0),
+            "bag_count": memory_summary.get("bag_count", 0),
+            "shelf_count": memory_summary.get("shelf_count", 0),
+            "change_hunk_count": len(memory_summary.get("recent_change_hunks", [])),
+        }
+        runtime_summary = (
+            self._state.run_trace_manager.summary(limit=8)
+            if getattr(self._state, "run_trace_manager", None)
+            else {
+                "active_run": {},
+                "recent_runs": [],
+                "recent_failures": [],
+                "latest_recovery_summary": {},
+                "run_heartbeat": {},
+                "last_runtime_event": {},
+                "touched_path_counts": {},
+                "grounding_counts": {},
+                "selected_run_ids": [],
+            }
+        )
+        self._state.runtime_state = {
+            "active_run_id": (runtime_summary.get("active_run") or {}).get("run_id", ""),
+            "active_status": (runtime_summary.get("active_run") or {}).get("status", ""),
+            "recent_run_count": len(runtime_summary.get("recent_runs", [])),
+            "recent_failure_count": len(runtime_summary.get("recent_failures", [])),
+        }
+
+        # ---------- FUTURE (parse roadmap + architecture canonical docs) -----
+        sidecar_root = _Path(self._state.sidecar_root)
+        roadmap_path = doc_path(sidecar_root, "implementation_roadmap")
+        current_tranche_scope = {}
+        next_planned_steps: list = []
+        active_goals: list = []
+        source_plan_hash = ""
+
+        if roadmap_path.is_file():
+            roadmap_text = roadmap_path.read_text(encoding="utf-8")
+            source_plan_hash = hashlib.sha256(roadmap_text.encode("utf-8")).hexdigest()
+            current_tranche_scope, next_planned_steps, active_goals, _next_horizon = _parse_roadmap(roadmap_text)
+
+        # Open questions parsed from ARCHITECTURE.md §15 "Still open" section.
+        open_questions: list[str] = []
+        arch_path = doc_path(sidecar_root, "architecture")
+        if arch_path.is_file():
+            arch_text = arch_path.read_text(encoding="utf-8")
+            open_questions = _parse_open_questions(arch_text)
+
+        constraint_map_summary = build_bootstrap_constraint_summary(self._state)
+
+        # ---------- write the row -------------------------------------------
+        self._store.execute("DELETE FROM proj_agent_bootstrap;")
+        self._store.execute(
+            """
+            INSERT OR REPLACE INTO proj_agent_bootstrap(
+                id,
+                recent_events_json, recent_journal_json, recent_decisions_json,
+                current_task_json, authority_json, contract_status_json,
+                tool_index_json, projection_index_json,
+                stm_json, bag_json, evidence_shelf_json,
+                current_tranche_scope_json, next_planned_steps_json,
+                active_goals_json, open_questions_json,
+                runtime_summary_json, constraint_map_summary_json,
+                source_plan_path, source_plan_hash, last_refreshed_at
+            ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                safe_json_dumps(recent_events),
+                safe_json_dumps(recent_journal),
+                safe_json_dumps(recent_decisions),
+                safe_json_dumps(current_task),
+                safe_json_dumps(authority_summary),
+                safe_json_dumps(contract_status),
+                safe_json_dumps(tool_index),
+                safe_json_dumps(projection_index),
+                safe_json_dumps(memory_summary.get("recent_stm", [])),
+                safe_json_dumps(memory_summary.get("recent_bag", [])),
+                safe_json_dumps(memory_summary.get("evidence_shelf", [])),
+                safe_json_dumps(current_tranche_scope),
+                safe_json_dumps(next_planned_steps),
+                safe_json_dumps(active_goals),
+                safe_json_dumps(open_questions),
+                safe_json_dumps(runtime_summary),
+                safe_json_dumps(constraint_map_summary),
+                doc_relpath(sidecar_root, "implementation_roadmap"),
+                source_plan_hash,
+                ts,
+            ),
+        )
+
+    def _build_tranche_checklist(self) -> None:
+        """Rebuild proj_tranche_checklist from active_tranche + decision_records.
+
+        Each row is one ChecklistItem evaluated against current DB state.
+        The projection is the live readiness indicator for the Park Phase.
+        Items with required=1 must all be 'pass' before close_tranche proceeds.
+        """
+        ts = now_iso()
+        try:
+            tranche_manager = getattr(self._state, "tranche_manager", None)
+            if tranche_manager is None:
+                # T2.5 not wired yet — write an empty projection.
+                self._store.execute("DELETE FROM proj_tranche_checklist;")
+                self._store.set_meta("proj_stub_refreshed_at:tranche_checklist", ts)
+                return
+
+            items = tranche_manager.build_checklist(self._state)
+        except Exception as e:
+            log.warning("tranche_checklist builder failed: %s", e)
+            self._store.set_meta("proj_stub_refreshed_at:tranche_checklist", ts)
+            return
+
+        with self._store.transaction():
+            self._store.execute("DELETE FROM proj_tranche_checklist;")
+            for item in items:
+                self._store.execute(
+                    """
+                    INSERT INTO proj_tranche_checklist(
+                        item_id, label, category, status, detail, checked_at, required
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (
+                        item.item_id,
+                        item.label,
+                        item.category,
+                        item.status,
+                        item.detail or "",
+                        item.checked_at,
+                        1 if item.required else 0,
+                    ),
+                )
+        self._store.set_meta("proj_stub_refreshed_at:tranche_checklist", ts)
+
+    def _build_viewport_state(self) -> None:
+        """Aggregate the monitoring-oriented read model used by the Tk UI."""
+        from pathlib import Path as _Path
+
+        ts = now_iso()
+        sidecar_root = _Path(self._state.sidecar_root)
+        paths = self._state.project_index_manager.stats() if self._state.project_index_manager else {}
+        current = self._state.snapshot()
+        contract = self._state.current_contract or {}
+
+        current_scan = self._state.project_index_manager.latest_scan() if self._state.project_index_manager else None
+        current_git = self._state.git_state_manager.latest() if self._state.git_state_manager else None
+        tranche_manager = getattr(self._state, "tranche_manager", None)
+        active_tranche = tranche_manager.get_current() if tranche_manager else None
+
+        ack_row = self._store.query_one("SELECT COUNT(*) AS n FROM acknowledgments;")
+        tool_count = self._state.tool_registry_manager.count() if self._state.tool_registry_manager else 0
+        tool_invocation_row = self._store.query_one("SELECT COUNT(*) AS n FROM tool_invocations;")
+        tool_invocation_count = int(tool_invocation_row["n"]) if tool_invocation_row else 0
+        evidence_count = self._state.evidence_manager.count() if self._state.evidence_manager else 0
+        journal_count = self._state.journal_manager.count() if self._state.journal_manager else 0
+        event_count = self._events.total_count()
+        current["registered_tool_count"] = tool_count
+        current["registered_object_count"] = int(paths.get("indexed_path_count", 0))
+        current["event_log_position"] = event_count
+        agent_count_row = self._store.query_one(
+            "SELECT COUNT(DISTINCT actor_id) AS n FROM events WHERE actor_id LIKE 'agent:%';"
+        )
+        event_agent_count = int(agent_count_row["n"]) if agent_count_row else 0
+        contract_count_row = self._store.query_one("SELECT COUNT(*) AS n FROM constraint_units;")
+        contract_unit_count = int(contract_count_row["n"]) if contract_count_row else 0
+        tranche_count_row = self._store.query_one(
+            "SELECT COUNT(*) AS n FROM journal_entries WHERE kind = 'tranche';"
+        )
+        tranche_count = int(tranche_count_row["n"]) if tranche_count_row else 0
+        approval_count_row = self._store.query_one(
+            "SELECT COUNT(*) AS n FROM approval_requests WHERE status = 'pending';"
+        )
+        approval_count = int(approval_count_row["n"]) if approval_count_row else 0
+        session_rows = self._state.agent_session_manager.active(limit=8) if getattr(self._state, "agent_session_manager", None) else []
+
+        recent_events_rows = self._store.query(
+            """
+            SELECT event_id, operation_intent, actor_id, stream, status, created_at
+            FROM events
+            ORDER BY created_at DESC LIMIT 12;
+            """
+        )
+        recent_events = [dict(r) for r in recent_events_rows]
+
+        recent_tools_rows = self._store.query(
+            """
+            SELECT invocation_id, tool_name, actor_id, status, started_at, finished_at
+            FROM tool_invocations
+            ORDER BY started_at DESC LIMIT 12;
+            """
+        )
+        recent_tools = [dict(r) for r in recent_tools_rows]
+
+        recent_journal = [
+            {
+                "entry_uid": entry.entry_uid,
+                "kind": entry.kind,
+                "status": entry.status,
+                "title": entry.title,
+                "importance": entry.importance,
+                "created_at": entry.created_at,
+                "tags": entry.tags,
+                "related_path": entry.related_path,
+                "body_excerpt": entry.body[:240] + ("..." if len(entry.body) > 240 else ""),
+            }
+            for entry in self._state.journal_manager.query(limit=8)
+        ] if self._state.journal_manager else []
+
+        recent_evidence = [
+            {
+                "evidence_id": record.evidence_id,
+                "kind": record.kind,
+                "summary": record.summary,
+                "status": record.status,
+                "created_at": record.created_at,
+                "attached_to_object": record.attached_to_object,
+                "source_path": record.source_path,
+                "hash": record.hash,
+            }
+            for record in self._state.evidence_manager.recent(limit=8)
+        ] if self._state.evidence_manager else []
+
+        memory_summary = {
+            "session_id": "",
+            "stm_count": 0,
+            "bag_count": 0,
+            "shelf_count": 0,
+            "recent_stm": [],
+            "recent_bag": [],
+            "evidence_shelf": [],
+            "recent_change_hunks": [],
+        }
+        current_session_id = _preferred_memory_session_id(self._state, self._store)
+        if not current_session_id and session_rows:
+            current_session_id = session_rows[0].session_id
+        if current_session_id and getattr(self._state, "memory_manager", None):
+            memory_summary = self._state.memory_manager.session_summary(current_session_id)
+        self._state.memory_state = {
+            "session_id": memory_summary.get("session_id", ""),
+            "stm_count": memory_summary.get("stm_count", 0),
+            "bag_count": memory_summary.get("bag_count", 0),
+            "shelf_count": memory_summary.get("shelf_count", 0),
+            "change_hunk_count": len(memory_summary.get("recent_change_hunks", [])),
+        }
+        runtime_summary = (
+            self._state.run_trace_manager.summary(limit=8)
+            if getattr(self._state, "run_trace_manager", None)
+            else {
+                "active_run": {},
+                "recent_runs": [],
+                "recent_failures": [],
+                "latest_recovery_summary": {},
+                "run_heartbeat": {},
+                "last_runtime_event": {},
+                "touched_path_counts": {},
+                "grounding_counts": {},
+                "selected_run_ids": [],
+            }
+        )
+        self._state.runtime_state = {
+            "active_run_id": (runtime_summary.get("active_run") or {}).get("run_id", ""),
+            "active_status": (runtime_summary.get("active_run") or {}).get("status", ""),
+            "recent_run_count": len(runtime_summary.get("recent_runs", [])),
+            "recent_failure_count": len(runtime_summary.get("recent_failures", [])),
+        }
+
+        agent_count = max(event_agent_count, len({row.actor_id for row in session_rows}))
+        current_agent = {}
+        if session_rows:
+            session = session_rows[0]
+            current_agent = {
+                "actor_id": session.actor_id,
+                "channel": session.channel,
+                "client_name": session.client_name,
+                "last_operation_intent": (session.metadata or {}).get("last_operation_intent", ""),
+                "last_stream": session.channel,
+                "last_seen_at": session.last_seen_at,
+                "authority": session.authority_level,
+                "runtime_status": (self._state.agent_status or {}).get("status", ""),
+            }
+        else:
+            for event in recent_events:
+                actor_id = event.get("actor_id", "")
+                if actor_id.startswith("agent:"):
+                    current_agent = {
+                        "actor_id": actor_id,
+                        "last_operation_intent": event.get("operation_intent"),
+                        "last_stream": event.get("stream"),
+                        "last_seen_at": event.get("created_at"),
+                        "authority": "Propose",
+                    }
+                    break
+
+        current_tranche_scope = {}
+        next_planned_steps: list[str] = []
+        active_goals: list[str] = []
+        source_plan_hash = ""
+        roadmap_next_horizon: dict[str, Any] = {}
+        roadmap_path = doc_path(sidecar_root, "implementation_roadmap")
+        if roadmap_path.is_file():
+            roadmap_text = roadmap_path.read_text(encoding="utf-8")
+            current_tranche_scope, next_planned_steps, active_goals, roadmap_next_horizon = _parse_roadmap(roadmap_text)
+            import hashlib as _hashlib
+            source_plan_hash = _hashlib.sha256(roadmap_text.encode("utf-8")).hexdigest()
+
+        arch_path = doc_path(sidecar_root, "architecture")
+        open_questions = _parse_open_questions(arch_path.read_text(encoding="utf-8")) if arch_path.is_file() else []
+
+        if active_tranche:
+            current_tranche_scope = {
+                "tranche_id": active_tranche.tranche_id,
+                "title": active_tranche.title,
+                "status": active_tranche.status,
+                "scope": active_tranche.declared_scope,
+                "non_goals": active_tranche.declared_non_goals,
+                "completion_criteria": active_tranche.declared_completion_criteria,
+                "current_review_id": active_tranche.current_review_id,
+                "last_review_status": active_tranche.last_review_status,
+            }
+        horizon_payload = {
+            "label": "Next horizon",
+            "current": roadmap_next_horizon if active_tranche and roadmap_next_horizon else current_tranche_scope,
+            "next_steps": next_planned_steps if not active_tranche else [],
+            "active_goals": active_goals if not active_tranche else [],
+        }
+
+        open_todos = [
+            {
+                "entry_uid": entry.entry_uid,
+                "title": entry.title,
+                "importance": entry.importance,
+                "created_at": entry.created_at,
+                "body_excerpt": entry.body[:180] + ("..." if len(entry.body) > 180 else ""),
+            }
+            for entry in self._state.journal_manager.query(kind="todo", status="open", limit=10)
+        ] if self._state.journal_manager else []
+
+        drift_checks = _build_drift_checks(self._state, tool_count)
+        drift_state = "ok" if all(item["ok"] for item in drift_checks) else "warn"
+        drift_message = (
+            "No drift detected — continuity docs and tranche state appear in sync."
+            if drift_state == "ok"
+            else "Drift detected — review continuity docs and latest tranche parking state."
+        )
+
+        topbar = {
+            "project_root": current["project_root"],
+            "sidecar_root": current["sidecar_root"],
+            "pills": [
+                {"id": "spine", "label": "SPINE OK", "state": "ok"},
+                {"id": "agents", "label": f"{agent_count} AGENT{'S' if agent_count != 1 else ''}", "state": "live" if agent_count else "ok"},
+                {"id": "mcp", "label": "MCP STDIO", "state": "ok"},
+                {"id": "git", "label": "GIT REPO" if current_git and current_git.is_repo else "NO GIT", "state": "ok" if current_git and current_git.is_repo else "warn"},
+                {"id": "approvals", "label": f"{approval_count} APPROVAL{'S' if approval_count != 1 else ''}", "state": "warn" if approval_count else "ok"},
+                {"id": "drift", "label": "NO DRIFT" if drift_state == "ok" else "DRIFT", "state": drift_state},
+            ],
+            "drift_banner": {
+                "state": drift_state,
+                "message": drift_message,
+                "checked_ago_s": 0,
+            },
+        }
+
+        focus = {
+            "current": "dashboard",
+            "options": [
+                {"id": "dashboard", "label": "Dashboard", "count": 1},
+                {"id": "state", "label": "State", "count": 1},
+                {"id": "journal", "label": "Journal", "count": journal_count},
+                {"id": "evidence", "label": "Evidence", "count": evidence_count},
+                {"id": "projmap", "label": "Project Map", "count": int(paths.get("indexed_path_count", 0))},
+                {"id": "contracts", "label": "Contracts", "count": contract_unit_count},
+                {"id": "tranchereview", "label": "Tranche Review", "count": 1 if active_tranche else 0},
+                {"id": "localagent", "label": "Local Agent", "count": 1},
+                {"id": "training", "label": "Training Runway", "count": 1},
+                {"id": "handoff", "label": "Handoff", "count": 1},
+                {"id": "installedproof", "label": "Installed Proof", "count": 1},
+                {"id": "events", "label": "Envelopes", "count": event_count},
+                {"id": "tools", "label": "Tool Invocations", "count": tool_invocation_count},
+                {"id": "tranches", "label": "Tranches", "count": tranche_count},
+            ],
+        }
+
+        past = {
+            "recent_journal": recent_journal,
+            "recent_events": recent_events,
+            "recent_tools": recent_tools,
+            "recent_evidence": recent_evidence,
+            "recent_change_hunks": memory_summary.get("recent_change_hunks", []),
+            "recent_runs": runtime_summary.get("recent_runs", []),
+        }
+
+        present = {
+            "current_state": current,
+            "contract": {
+                "contract_id": contract.get("contract_id"),
+                "version": contract.get("version"),
+                "text_hash": contract.get("text_hash"),
+                "ack_count": int(ack_row["n"]) if ack_row else 0,
+            },
+            "latest_scan": {
+                "scan_id": current_scan.scan_id,
+                "started_at": current_scan.started_at,
+                "finished_at": current_scan.finished_at,
+                "file_count": current_scan.file_count,
+                "directory_count": current_scan.directory_count,
+                "status": current_scan.status,
+                "added_count": current_scan.added_count,
+                "modified_count": current_scan.modified_count,
+                "removed_count": current_scan.removed_count,
+            } if current_scan else {},
+            "latest_git": {
+                "is_repo": current_git.is_repo,
+                "branch": current_git.branch,
+                "head_sha": current_git.head_sha,
+                "dirty_count": current_git.dirty_count,
+                "ahead": current_git.ahead,
+                "behind": current_git.behind,
+            } if current_git else {},
+            "active_tranche": {
+                "tranche_id": active_tranche.tranche_id,
+                "title": active_tranche.title,
+                "status": active_tranche.status,
+                "started_at": active_tranche.started_at,
+                "decisions_count": active_tranche.decisions_count,
+                "tests_run_count": len(active_tranche.tests_run),
+                "current_review_id": active_tranche.current_review_id,
+                "last_review_status": active_tranche.last_review_status,
+            } if active_tranche else {},
+            "current_agent": current_agent,
+            "agent_sessions": [
+                {
+                    "session_id": session.session_id,
+                    "actor_id": session.actor_id,
+                    "channel": session.channel,
+                    "client_name": session.client_name,
+                    "last_seen_at": session.last_seen_at,
+                    "authority_level": session.authority_level,
+                }
+                for session in session_rows
+            ],
+            "pending_approvals": approval_count,
+            "tool_count": tool_count,
+            "memory": memory_summary,
+            "runtime": runtime_summary,
+        }
+
+        future = {
+            "drift_checks": drift_checks,
+            "current_tranche_scope": current_tranche_scope if active_tranche else {},
+            "next_horizon": horizon_payload,
+            "next_planned_steps": next_planned_steps,
+            "active_goals": active_goals,
+            "open_questions": open_questions,
+            "open_todos": open_todos,
+            "source_plan_hash": source_plan_hash,
+        }
+
+        log_payload = {
+            "lines": _tail_log_lines(sidecar_root / "logs" / "sidecar.log", limit=60),
+        }
+
+        status_bar = {
+            "ready": True,
+            "schema_version": self._state.store.schema_version(),
+            "events": event_count,
+            "journal": journal_count,
+            "tools": tool_count,
+            "agents": agent_count,
+            "last_refresh_at": ts,
+            "alert": None if drift_state == "ok" else drift_message,
+        }
+
+        self._store.execute("DELETE FROM proj_viewport_state;")
+        self._store.execute(
+            """
+            INSERT OR REPLACE INTO proj_viewport_state(
+                id, topbar_json, focus_json, past_json, present_json,
+                future_json, log_json, status_bar_json, last_refreshed_at
+            ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                safe_json_dumps(topbar),
+                safe_json_dumps(focus),
+                safe_json_dumps(past),
+                safe_json_dumps(present),
+                safe_json_dumps(future),
+                safe_json_dumps(log_payload),
+                safe_json_dumps(status_bar),
+                ts,
+            ),
+        )
+
+    def _build_handoff(self) -> None:
+        ts = now_iso()
+        tranche_manager = getattr(self._state, "tranche_manager", None)
+        active_tranche = tranche_manager.get_current() if tranche_manager else None
+        latest_closed = None
+        if self._state.journal_manager:
+            closed = self._state.journal_manager.query(kind="tranche", status="closed", limit=1)
+            if closed:
+                entry = closed[0]
+                latest_closed = {
+                    "entry_uid": entry.entry_uid,
+                    "title": entry.title,
+                    "created_at": entry.created_at,
+                    "body_excerpt": entry.body[:220] + ("..." if len(entry.body) > 220 else ""),
+                }
+
+        sidecar_root = self._state.sidecar_root
+        roadmap_text = ""
+        roadmap_path = doc_path(sidecar_root, "implementation_roadmap")
+        if roadmap_path.is_file():
+            roadmap_text = roadmap_path.read_text(encoding="utf-8")
+        current_scope, next_steps, active_goals, roadmap_next_horizon = _parse_roadmap(roadmap_text) if roadmap_text else ({}, [], [], {})
+        arch_path = doc_path(sidecar_root, "architecture")
+        open_questions = _parse_open_questions(arch_path.read_text(encoding="utf-8")) if arch_path.is_file() else []
+        handoff_horizon = roadmap_next_horizon if active_tranche and roadmap_next_horizon else current_scope
+
+        reading_order = [
+            "contracts/BCC.md",
+            doc_relpath(sidecar_root, "project_bindings"),
+            doc_relpath(sidecar_root, "architecture"),
+            doc_relpath(sidecar_root, "target_state"),
+            doc_relpath(sidecar_root, "where_we_are_now"),
+            doc_relpath(sidecar_root, "implementation_roadmap"),
+            doc_relpath(sidecar_root, "source_provenance"),
+            doc_relpath(sidecar_root, "tools_index"),
+            doc_relpath(sidecar_root, "onboarding"),
+            "README.md",
+            doc_relpath(sidecar_root, "northstars"),
+            doc_relpath(sidecar_root, "dev_log"),
+        ]
+        verification_commands = [
+            "python -m src.app cli version",
+            "python smoke_test.py",
+            "python -m src.app cli projection handoff",
+            "python -m src.app cli projection agent_bootstrap",
+            "python -m src.app cli projection bcc_constraint_map",
+            "python -m src.app cli projection tranche_review_gate",
+            "python -m src.app cli projection runtime_cockpit",
+            "python -m src.app cli projection training_runway",
+            "python -m src.app cli projection installed_project_proof",
+            "python -m src.app cli journal-query --kind todo --status open",
+            "python -m src.app ui",
+        ]
+
+        self._store.execute("DELETE FROM proj_handoff;")
+        self._store.execute(
+            """
+            INSERT OR REPLACE INTO proj_handoff(
+                id, latest_closed_tranche_json, active_tranche_json,
+                active_horizon_json, open_questions_json, reading_order_json,
+                verification_commands_json, last_refreshed_at
+            ) VALUES (1, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                safe_json_dumps(latest_closed or {}),
+                safe_json_dumps(
+                    {
+                        "tranche_id": active_tranche.tranche_id,
+                        "title": active_tranche.title,
+                        "started_at": active_tranche.started_at,
+                        "scope": active_tranche.declared_scope,
+                    } if active_tranche else {}
+                ),
+                safe_json_dumps(
+                    {
+                        "label": "Next horizon",
+                        "current": handoff_horizon,
+                        "next_steps": next_steps if not active_tranche else [],
+                        "active_goals": active_goals if not active_tranche else [],
+                    }
+                ),
+                safe_json_dumps(open_questions),
+                safe_json_dumps(reading_order),
+                safe_json_dumps(verification_commands),
+                ts,
+            ),
+        )
+
+    def _build_tranche_review_gate(self) -> None:
+        ts = now_iso()
+        tranche_manager = getattr(self._state, "tranche_manager", None)
+        tranche = tranche_manager.get_current() if tranche_manager else None
+        latest_review = None
+        history = []
+        allowed_actions = []
+        park_phase_allowed = 0
+
+        if tranche_manager and tranche:
+            latest_review = tranche_manager.get_latest_review(tranche.tranche_id)
+            history = [
+                {
+                    "review_id": review.review_id,
+                    "status": review.status,
+                    "generated_at": review.generated_at,
+                    "generated_by_actor": review.generated_by_actor,
+                    "reviewed_by_actor": review.reviewed_by_actor,
+                    "reviewed_at": review.reviewed_at,
+                    "return_reason": review.return_reason,
+                    "approval_notes": review.approval_notes,
+                    "event_id": review.event_id,
+                    "metadata": review.metadata,
+                }
+                for review in tranche_manager.list_reviews(tranche.tranche_id, limit=8)
+            ]
+            if tranche.status == "active":
+                allowed_actions = ["request_tranche_review"]
+            elif tranche.status == "review_pending":
+                allowed_actions = ["approve_tranche_review", "return_tranche_review"]
+            elif tranche.status == "review_approved":
+                allowed_actions = ["close_tranche"]
+                park_phase_allowed = 1
+
+        self._store.execute("DELETE FROM proj_tranche_review_gate;")
+        self._store.execute(
+            """
+            INSERT OR REPLACE INTO proj_tranche_review_gate(
+                id, current_tranche_json, latest_review_json, history_json,
+                allowed_actions_json, park_phase_allowed, last_refreshed_at
+            ) VALUES (1, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                safe_json_dumps(
+                    {
+                        "tranche_id": tranche.tranche_id,
+                        "title": tranche.title,
+                        "status": tranche.status,
+                        "started_at": tranche.started_at,
+                        "declared_scope": tranche.declared_scope,
+                        "declared_non_goals": tranche.declared_non_goals,
+                        "declared_completion_criteria": tranche.declared_completion_criteria,
+                        "current_review_id": tranche.current_review_id,
+                        "last_review_status": tranche.last_review_status,
+                        "last_reviewed_at": tranche.last_reviewed_at,
+                    } if tranche else {}
+                ),
+                safe_json_dumps(
+                    {
+                        "review_id": latest_review.review_id,
+                        "status": latest_review.status,
+                        "generated_at": latest_review.generated_at,
+                        "generated_by_actor": latest_review.generated_by_actor,
+                        "reviewed_by_actor": latest_review.reviewed_by_actor,
+                        "reviewed_at": latest_review.reviewed_at,
+                        "return_reason": latest_review.return_reason,
+                        "approval_notes": latest_review.approval_notes,
+                        "event_id": latest_review.event_id,
+                        "review_packet_json_ref": latest_review.review_packet_json_ref,
+                        "review_packet_markdown_ref": latest_review.review_packet_markdown_ref,
+                        "smoke_snapshot": latest_review.smoke_snapshot,
+                        "latest_decision_ids": latest_review.latest_decision_ids,
+                        "latest_test_records": latest_review.latest_test_records,
+                        "metadata": latest_review.metadata,
+                    } if latest_review else {}
+                ),
+                safe_json_dumps(history),
+                safe_json_dumps(allowed_actions),
+                park_phase_allowed,
+                ts,
+            ),
+        )
+
+    def _stub_builder_for(self, name: str) -> Callable[[], None]:
+        """Stub: clear the table and stamp last_refreshed_at via meta key.
+
+        Real builders for these projections land in T2+ (project_map,
+        journal_timeline, evidence_bag, agent_bootstrap, human_dashboard).
+        """
+        def build() -> None:
+            ts = now_iso()
+            self._store.set_meta(f"proj_stub_refreshed_at:{name}", ts)
+        return build
+
+    def _build_bcc_constraint_map(self) -> None:
+        ts = now_iso()
+        row = build_bcc_constraint_projection_row(self._state)
+        self._store.execute("DELETE FROM proj_bcc_constraint_map;")
+        self._store.execute(
+            """
+            INSERT OR REPLACE INTO proj_bcc_constraint_map(
+                id, status, source_contract_path, live_contract_hash,
+                contract_record_hash, compiled_contract_hash, hash_match,
+                compiler_version, generated_at, payload_json, summary_json,
+                drift_json, guidance_allowed, refresh_hint, last_refreshed_at
+            ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                row["status"],
+                row["source_contract_path"],
+                row["live_contract_hash"],
+                row["contract_record_hash"],
+                row["compiled_contract_hash"],
+                row["hash_match"],
+                row["compiler_version"],
+                row["generated_at"],
+                row["payload_json"],
+                row["summary_json"],
+                row["drift_json"],
+                row["guidance_allowed"],
+                row["refresh_hint"],
+                ts,
+            ),
+        )
+
+    # --- internals ----------------------------------------------------
+
+    def _read_rows(self, name: str) -> list[dict]:
+        try:
+            rows = self._store.query(f"SELECT * FROM proj_{name};")
+            return [dict(r) for r in rows]
+        except Exception as e:
+            log.warning("could not read projection %s: %s", name, e)
+            return []
+
+    def _read_last_refreshed(self, name: str) -> str:
+        # Try the table's last_refreshed_at column for single-row projections.
+        try:
+            row = self._store.query_one(
+                f"SELECT last_refreshed_at FROM proj_{name} LIMIT 1;"
+            )
+            if row and row["last_refreshed_at"]:
+                return row["last_refreshed_at"]
+        except Exception:
+            pass
+        # Fall back to the stub meta key.
+        meta = self._store.get_meta(f"proj_stub_refreshed_at:{name}")
+        return meta or ""
+
+    def _build_runtime_cockpit(self) -> None:
+        ts = now_iso()
+        summary = (
+            self._state.run_trace_manager.summary(limit=12)
+            if getattr(self._state, "run_trace_manager", None)
+            else {
+                "active_run": {},
+                "recent_runs": [],
+                "recent_failures": [],
+                "latest_recovery_summary": {},
+                "run_heartbeat": {},
+                "last_runtime_event": {},
+                "touched_path_counts": {},
+                "grounding_counts": {},
+                "selected_run_ids": [],
+            }
+        )
+        self._store.execute("DELETE FROM proj_runtime_cockpit;")
+        self._store.execute(
+            """
+            INSERT OR REPLACE INTO proj_runtime_cockpit(
+                id, active_run_json, recent_runs_json, recent_failures_json,
+                latest_recovery_summary_json, run_heartbeat_json, last_runtime_event_json,
+                touched_path_counts_json, grounding_counts_json, selected_run_ids_json, last_refreshed_at
+            ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                safe_json_dumps(summary.get("active_run", {})),
+                safe_json_dumps(summary.get("recent_runs", [])),
+                safe_json_dumps(summary.get("recent_failures", [])),
+                safe_json_dumps(summary.get("latest_recovery_summary", {})),
+                safe_json_dumps(summary.get("run_heartbeat", {})),
+                safe_json_dumps(summary.get("last_runtime_event", {})),
+                safe_json_dumps(summary.get("touched_path_counts", {})),
+                safe_json_dumps(summary.get("grounding_counts", {})),
+                safe_json_dumps(summary.get("selected_run_ids", [])),
+                ts,
+            ),
+        )
+
+    def _build_training_runway(self) -> None:
+        ts = now_iso()
+        summary = (
+            self._state.training_runway_manager.summary(limit=8)
+            if getattr(self._state, "training_runway_manager", None)
+            else {
+                "scenario_inventory": [],
+                "recent_runs": [],
+                "recent_scorecards": [],
+                "pass_fail_counts": {"pass": 0, "fail": 0},
+                "latest_live_proof": {},
+                "reviewer_export_handles": [],
+            }
+        )
+        self._store.execute("DELETE FROM proj_training_runway;")
+        self._store.execute(
+            """
+            INSERT OR REPLACE INTO proj_training_runway(
+                id, scenario_inventory_json, recent_runs_json, recent_scorecards_json,
+                pass_fail_counts_json, latest_live_proof_json, reviewer_export_handles_json,
+                last_refreshed_at
+            ) VALUES (1, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                safe_json_dumps(summary.get("scenario_inventory", [])),
+                safe_json_dumps(summary.get("recent_runs", [])),
+                safe_json_dumps(summary.get("recent_scorecards", [])),
+                safe_json_dumps(summary.get("pass_fail_counts", {})),
+                safe_json_dumps(summary.get("latest_live_proof", {})),
+                safe_json_dumps(summary.get("reviewer_export_handles", [])),
+                ts,
+            ),
+        )
+
+    def _build_installed_project_proof(self) -> None:
+        ts = now_iso()
+        summary = (
+            self._state.installed_project_proof_manager.summary(limit=5)
+            if getattr(self._state, "installed_project_proof_manager", None)
+            else {
+                "fixture_summary": {},
+                "latest_proof": {},
+                "recent_proofs": [],
+                "verification_result": {},
+                "handoff_status": {},
+                "supersession_status": {},
+            }
+        )
+        self._store.execute("DELETE FROM proj_installed_project_proof;")
+        self._store.execute(
+            """
+            INSERT OR REPLACE INTO proj_installed_project_proof(
+                id, fixture_summary_json, latest_proof_json, recent_proofs_json,
+                verification_result_json, handoff_status_json, supersession_status_json,
+                last_refreshed_at
+            ) VALUES (1, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                safe_json_dumps(summary.get("fixture_summary", {})),
+                safe_json_dumps(summary.get("latest_proof", {})),
+                safe_json_dumps(summary.get("recent_proofs", [])),
+                safe_json_dumps(summary.get("verification_result", {})),
+                safe_json_dumps(summary.get("handoff_status", {})),
+                safe_json_dumps(summary.get("supersession_status", {})),
+                ts,
+            ),
+        )
+
+    def _sync_contract_migration_inventory(self) -> dict[str, Any]:
+        ts = now_iso()
+        inventory = build_inventory(self._state.sidecar_root, store=self._store)
+        with self._store.transaction():
+            self._store.execute("DELETE FROM contract_migration_nodes;")
+            self._store.execute("DELETE FROM contract_migration_edges;")
+            self._store.execute("DELETE FROM legacy_contract_references;")
+            for node in inventory["nodes"]:
+                self._store.execute(
+                    """
+                    INSERT OR REPLACE INTO contract_migration_nodes(
+                        node_id, node_type, title, metadata_json, created_at, last_seen_at
+                    ) VALUES (?, ?, ?, ?, ?, ?);
+                    """,
+                    (
+                        node["node_id"],
+                        node["node_type"],
+                        node["title"],
+                        safe_json_dumps(node.get("metadata_json", {})),
+                        ts,
+                        ts,
+                    ),
+                )
+            for edge in inventory["edges"]:
+                self._store.execute(
+                    """
+                    INSERT OR REPLACE INTO contract_migration_edges(
+                        edge_id, subject_id, predicate, object_id, metadata_json, created_at, last_seen_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (
+                        edge["edge_id"],
+                        edge["subject_id"],
+                        edge["predicate"],
+                        edge["object_id"],
+                        safe_json_dumps(edge.get("metadata_json", {})),
+                        ts,
+                        ts,
+                    ),
+                )
+            for ref in inventory["refs"]:
+                self._store.execute(
+                    """
+                    INSERT OR REPLACE INTO legacy_contract_references(
+                        ref_id, source_path, reference_kind, legacy_ref, translated_ref,
+                        translation_status, surface_class, historical_preservation,
+                        metadata_json, created_at, last_seen_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (
+                        ref["ref_id"],
+                        ref["source_path"],
+                        ref["reference_kind"],
+                        ref["legacy_ref"],
+                        ref.get("translated_ref", ""),
+                        ref["translation_status"],
+                        ref["surface_class"],
+                        ref["historical_preservation"],
+                        safe_json_dumps(ref.get("metadata", {})),
+                        ts,
+                        ts,
+                    ),
+                )
+        return inventory
+
+    def _build_contract_migration_overview(self) -> None:
+        ts = now_iso()
+        inventory = self._sync_contract_migration_inventory()
+        refs = inventory["refs"]
+        by_surface: dict[str, int] = defaultdict(int)
+        for ref in refs:
+            by_surface[ref["surface_class"]] += 1
+        bundle_counts = {
+            "total": len(BUNDLE_CATALOG),
+            "mapped_with_refs": len({ref["translated_ref"] for ref in refs if ref.get("translated_ref")}),
+        }
+        reference_counts = {
+            "total": len(refs),
+            "mapped": sum(1 for ref in refs if ref["translation_status"] == "mapped"),
+            "unmapped": sum(1 for ref in refs if ref["translation_status"] != "mapped"),
+            "by_surface": dict(sorted(by_surface.items())),
+        }
+        self._store.execute("DELETE FROM proj_contract_migration_overview;")
+        self._store.execute(
+            """
+            INSERT OR REPLACE INTO proj_contract_migration_overview(
+                id, summary_json, bundle_counts_json, reference_counts_json, last_refreshed_at
+            ) VALUES (1, ?, ?, ?, ?);
+            """,
+            (
+                safe_json_dumps(inventory["summary"]),
+                safe_json_dumps(bundle_counts),
+                safe_json_dumps(reference_counts),
+                ts,
+            ),
+        )
+
+    def _build_contract_bundle_status(self) -> None:
+        ts = now_iso()
+        inventory = build_inventory(self._state.sidecar_root, store=self._store)
+        refs = inventory["refs"]
+        with self._store.transaction():
+            self._store.execute("DELETE FROM proj_contract_bundle_status;")
+            for bundle in BUNDLE_CATALOG:
+                matching = [ref for ref in refs if any(legacy == ref["legacy_ref"] for legacy in bundle.legacy_refs)]
+                mapped_count = sum(1 for ref in matching if ref["translation_status"] == "mapped")
+                unresolved_count = sum(1 for ref in matching if ref["translation_status"] != "mapped")
+                if not matching:
+                    status = "ready"
+                elif unresolved_count:
+                    status = "partial"
+                else:
+                    status = "mapped"
+                self._store.execute(
+                    """
+                    INSERT OR REPLACE INTO proj_contract_bundle_status(
+                        bundle_id, title, bcc_sections_json, legacy_refs_json,
+                        mapped_count, unresolved_count, status, notes_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (
+                        bundle.bundle_id,
+                        bundle.title,
+                        safe_json_dumps(list(bundle.bcc_sections)),
+                        safe_json_dumps(list(bundle.legacy_refs)),
+                        mapped_count,
+                        unresolved_count,
+                        status,
+                        safe_json_dumps({"notes": bundle.notes, "last_refreshed_at": ts}),
+                    ),
+                )
+        self._store.set_meta("proj_stub_refreshed_at:contract_bundle_status", ts)
+
+    def _build_continuity_translation_status(self) -> None:
+        ts = now_iso()
+        inventory = build_inventory(self._state.sidecar_root, store=self._store)
+        grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for ref in inventory["refs"]:
+            grouped[ref["source_path"]].append(ref)
+        with self._store.transaction():
+            self._store.execute("DELETE FROM proj_continuity_translation_status;")
+            for surface_path in sorted(set(active_doc_relpaths(self._state.sidecar_root)) | set(grouped.keys())):
+                refs = grouped.get(surface_path, [])
+                surface_class = "active_continuity" if surface_path in active_doc_relpaths(self._state.sidecar_root) else (refs[0]["surface_class"] if refs else "project_surface")
+                unresolved = sum(1 for ref in refs if ref["translation_status"] != "mapped")
+                legacy_count = len(refs)
+                status = "ready" if legacy_count == 0 or unresolved == 0 else "partial"
+                if unresolved and legacy_count == unresolved:
+                    status = "needs_translation"
+                self._store.execute(
+                    """
+                    INSERT OR REPLACE INTO proj_continuity_translation_status(
+                        surface_path, surface_class, status, legacy_ref_count,
+                        unresolved_count, notes_json, last_seen_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (
+                        surface_path,
+                        surface_class,
+                        status,
+                        legacy_count,
+                        unresolved,
+                        safe_json_dumps({"refs": [ref["legacy_ref"] for ref in refs[:20]]}),
+                        ts,
+                    ),
+                )
+        self._store.set_meta("proj_stub_refreshed_at:continuity_translation_status", ts)
+
+    def _build_legacy_reference_register(self) -> None:
+        ts = now_iso()
+        inventory = build_inventory(self._state.sidecar_root, store=self._store)
+        with self._store.transaction():
+            self._store.execute("DELETE FROM proj_legacy_reference_register;")
+            for ref in inventory["refs"]:
+                self._store.execute(
+                    """
+                    INSERT OR REPLACE INTO proj_legacy_reference_register(
+                        ref_id, source_path, reference_kind, legacy_ref,
+                        translated_ref, translation_status, surface_class, historical_preservation
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (
+                        ref["ref_id"],
+                        ref["source_path"],
+                        ref["reference_kind"],
+                        ref["legacy_ref"],
+                        ref.get("translated_ref", ""),
+                        ref["translation_status"],
+                        ref["surface_class"],
+                        ref["historical_preservation"],
+                    ),
+                )
+        self._store.set_meta("proj_stub_refreshed_at:legacy_reference_register", ts)
+
+    def _build_doc_registry_status(self) -> None:
+        ts = now_iso()
+        sidecar_root = self._state.sidecar_root
+        with self._store.transaction():
+            self._store.execute("DELETE FROM proj_doc_registry_status;")
+            for record in doc_status_records(sidecar_root):
+                self._store.execute(
+                    """
+                    INSERT OR REPLACE INTO proj_doc_registry_status(
+                        doc_id, canonical_relpath, resolved_relpath, temporal_class,
+                        surface_kind, exists_flag, hash, alias_count, drift_status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (
+                        record["doc_id"],
+                        record["canonical_relpath"],
+                        record["resolved_relpath"],
+                        record["temporal_class"],
+                        record["surface_kind"],
+                        record["exists"],
+                        record["hash"],
+                        record["alias_count"],
+                        record["drift_status"],
+                    ),
+                )
+            for record in collection_records(sidecar_root):
+                self._store.execute(
+                    """
+                    INSERT OR REPLACE INTO proj_doc_registry_status(
+                        doc_id, canonical_relpath, resolved_relpath, temporal_class,
+                        surface_kind, exists_flag, hash, alias_count, drift_status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (
+                        record["collection_id"],
+                        record["canonical_relpath"],
+                        record["resolved_relpath"],
+                        record["temporal_class"],
+                        record["surface_kind"],
+                        1 if record["exists"] else 0,
+                        record["hash"],
+                        record["alias_count"],
+                        record["drift_status"],
+                    ),
+                )
+        self._store.set_meta("proj_stub_refreshed_at:doc_registry_status", ts)
+
+    def _build_doc_cutover_readiness(self) -> None:
+        ts = now_iso()
+        inventory = build_inventory(self._state.sidecar_root, store=self._store)
+        refs = [ref for ref in inventory["refs"] if ref["surface_class"] == "active_continuity"]
+        active_doc_set = set(active_doc_relpaths(self._state.sidecar_root))
+        referenced_docs = {ref["source_path"] for ref in refs}
+        ready_docs = len(active_doc_set - referenced_docs)
+        unresolved_refs = sum(1 for ref in refs if ref["translation_status"] != "mapped")
+        alias_paths = root_alias_paths(self._state.sidecar_root)
+        with self._store.transaction():
+            self._store.execute("DELETE FROM proj_doc_cutover_readiness;")
+            self._store.execute(
+                """
+                INSERT OR REPLACE INTO proj_doc_cutover_readiness(
+                    id, active_docs_total, ready_docs_count, unresolved_refs_count,
+                    compatibility_aliases_json, last_refreshed_at
+                ) VALUES (1, ?, ?, ?, ?, ?);
+                """,
+                (
+                    len(active_doc_set),
+                    ready_docs,
+                    unresolved_refs,
+                    safe_json_dumps({
+                        "contract_aliases": contract_aliases(self._state.sidecar_root),
+                        "root_doc_aliases": alias_paths,
+                        "doc_registry": str(doc_registry_path(self._state.sidecar_root).relative_to(self._state.sidecar_root)),
+                    }),
+                    ts,
+                ),
+            )
+
+    def _build_journal_translation_readiness(self) -> None:
+        ts = now_iso()
+        inventory = build_inventory(self._state.sidecar_root, store=self._store)
+        historical_refs = [ref for ref in inventory["refs"] if ref["historical_preservation"]]
+        tranche_count = 0
+        translation_note_count = 0
+        try:
+            row = self._store.query_one("SELECT COUNT(*) AS n FROM journal_entries WHERE kind = 'tranche';")
+            tranche_count = int(row["n"]) if row else 0
+            translation_note_count = len(self._store.query(
+                "SELECT entry_uid FROM journal_entries WHERE metadata_json LIKE '%translated_contract_refs%';"
+            ))
+        except Exception:
+            tranche_count = 0
+            translation_note_count = 0
+        with self._store.transaction():
+            self._store.execute("DELETE FROM proj_journal_translation_readiness;")
+            self._store.execute(
+                """
+                INSERT OR REPLACE INTO proj_journal_translation_readiness(
+                    id, tranche_entry_count, historical_artifact_count, translation_notes_count,
+                    unresolved_historical_refs_count, last_refreshed_at
+                ) VALUES (1, ?, ?, ?, ?, ?);
+                """,
+                (
+                    tranche_count,
+                    len([ref for ref in inventory["refs"] if ref["historical_preservation"]]),
+                    translation_note_count,
+                    sum(1 for ref in historical_refs if ref["translation_status"] != "mapped"),
+                    ts,
+                ),
+            )
+
+
+# ---------------------------------------------------------------------------
+# IMPLEMENTATION_ROADMAP.md and ARCHITECTURE.md §15 parsers
+#
+# Fragile by nature (they rely on Markdown structure) but graceful — if the
+# format drifts, parsers return empty results rather than raising. The drift
+# would show up as empty FUTURE fields in agent_bootstrap, which is a
+# smoke-test-visible drift signal.
+# ---------------------------------------------------------------------------
+
+def _parse_roadmap(text: str) -> tuple[dict, list, list, dict]:
+    """Return (current_tranche_scope, next_planned_steps, active_goals, next_horizon).
+
+    Identifies the next "Tranche N" heading that does NOT contain "✓ COMPLETE",
+    extracts its Scope / Files / Non-goals / Completion criteria subsections.
+    """
+    import re
+    tranche_pattern = re.compile(
+        r"^### \*\*Tranche\s+(?P<num>[\d.]+)\s+—\s+(?P<title>[^*]+?)\*\*(?P<rest>[^\n]*)\n",
+        re.MULTILINE,
+    )
+    matches = list(tranche_pattern.finditer(text))
+
+    current_match = None
+    upcoming: list[dict] = []
+    for i, m in enumerate(matches):
+        rest = m.group("rest") or ""
+        is_complete = "✓ COMPLETE" in rest or "COMPLETE" in rest
+        title = m.group("title").strip()
+        num = m.group("num").strip()
+        if is_complete:
+            continue
+        if current_match is None:
+            current_match = (m, num, title, i)
+        else:
+            upcoming.append({"tranche": f"T{num}", "title": title})
+
+    if current_match is None:
+        return ({}, [], [], {})
+
+    m, num, title, idx = current_match
+    section_start = m.end()
+    section_end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+    section = text[section_start:section_end]
+
+    def _extract(label: str) -> str:
+        pat = re.compile(
+            rf"\*\*{re.escape(label)}:\*\*(?P<body>.*?)(?=\n\*\*[A-Z]|\n### |\n## |\Z)",
+            re.DOTALL,
+        )
+        match = pat.search(section)
+        return match.group("body").strip() if match else ""
+
+    def _extract_prefix(label_prefix: str) -> str:
+        pat = re.compile(
+            rf"\*\*{re.escape(label_prefix)}[^*]*:\*\*(?P<body>.*?)(?=\n\*\*[A-Z]|\n### |\n## |\Z)",
+            re.DOTALL,
+        )
+        match = pat.search(section)
+        return match.group("body").strip() if match else ""
+
+    scope = _extract("Scope")
+    files = _extract_prefix("Files implemented")
+    if not files:
+        files = _extract_prefix("Target files / surfaces")
+    non_goals = _extract("Non-goals")
+    completion = _extract("Completion criteria")
+
+    current_tranche_scope = {
+        "tranche": f"T{num}",
+        "title": title,
+        "scope": scope[:1000] if scope else "",
+        "files_implemented": files[:1500] if files else "",
+        "non_goals": non_goals[:600] if non_goals else "",
+        "completion_criteria": completion[:1000] if completion else "",
+    }
+
+    # next_planned_steps = the bullet/sentence breakdown of the upcoming work.
+    next_steps: list[str] = []
+    if files:
+        # Each file or item per line, stripped of bullets.
+        for line in files.splitlines():
+            line = line.strip().lstrip("-*").strip()
+            if line and len(line) < 200:
+                next_steps.append(line)
+    if not next_steps and completion:
+        for line in completion.splitlines():
+            line = line.strip().lstrip("-*").strip()
+            if line and len(line) < 200:
+                next_steps.append(line)
+    if not next_steps and scope:
+        for sentence in re.split(r"(?<=[.!?])\s+", scope):
+            sentence = sentence.strip()
+            if sentence and len(sentence) < 200:
+                next_steps.append(sentence)
+
+    active_goals: list[str] = []
+    if completion:
+        for line in completion.splitlines():
+            line = line.strip().lstrip("-*").strip()
+            if line and len(line) < 300:
+                active_goals.append(line)
+
+    next_horizon = upcoming[0] if upcoming else {}
+    return (current_tranche_scope, next_steps[:30], active_goals[:20], next_horizon)
+
+
+def _parse_open_questions(arch_text: str) -> list[str]:
+    """Extract bullets from the §15 'Still open' subsection."""
+    import re
+    still_open_pat = re.compile(
+        r"### Still open\s*\(deferred to later tranches\)\s*\n(.*?)(?=\n### |\n## |\Z)",
+        re.DOTALL,
+    )
+    m = still_open_pat.search(arch_text)
+    if not m:
+        return []
+    body = m.group(1)
+    questions: list[str] = []
+    for line in body.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            questions.append(stripped[2:].strip()[:250])
+    return questions[:30]
+
+
+def _preferred_memory_session_id(state: "SidecarState", store: "Store") -> str:
+    agent_status = getattr(state, "agent_status", {}) or {}
+    if agent_status.get("session_id") and str(agent_status.get("status") or "") in {
+        "running",
+        "awaiting_approval",
+        "stop_requested",
+    }:
+        return str(agent_status.get("session_id") or "")
+    row = store.query_one(
+        """
+        SELECT session_id FROM change_hunks
+        WHERE session_id IS NOT NULL AND session_id != ''
+        ORDER BY created_at DESC
+        LIMIT 1;
+        """
+    )
+    if row and row["session_id"]:
+        return str(row["session_id"])
+    row = store.query_one(
+        """
+        SELECT session_id FROM session_memory_items
+        WHERE session_id IS NOT NULL AND session_id != ''
+        ORDER BY last_accessed_at DESC
+        LIMIT 1;
+        """
+    )
+    if row and row["session_id"]:
+        return str(row["session_id"])
+    sessions = getattr(state, "agent_session_manager", None)
+    if sessions is not None:
+        active = sessions.active(limit=1)
+        if active:
+            return active[0].session_id
+    return ""
+
+
+def _build_drift_checks(state: "SidecarState", tool_count: int) -> list[dict]:
+    sidecar_root = state.sidecar_root
+    checks: list[dict] = []
+
+    tools_md_ok = False
+    readme_ok = False
+    arch_ok = False
+    tranche_ok = False
+    handoff_docs_ok = False
+    registry_ok = False
+    root_policy_ok = False
+
+    try:
+        import re
+
+        tools_md = read_doc_text(sidecar_root, "tools_index")
+        rows_md = re.findall(r"^\|\s*`[a-z_]+`\s*\|", tools_md, re.MULTILINE)
+        tools_md_ok = len(rows_md) == tool_count
+    except Exception:
+        tools_md_ok = False
+
+    checks.append({
+        "id": "tools_md",
+        "ok": tools_md_ok,
+        "label": f"TOOLS.md row count = tool_registry ({tool_count})",
+    })
+
+    try:
+        registry_rows = doc_status_records(sidecar_root)
+        registry_ok = bool(registry_rows) and all(row["drift_status"] in {"ok", "alias"} for row in registry_rows)
+    except Exception:
+        registry_ok = False
+
+    checks.append({
+        "id": "doc_registry",
+        "ok": registry_ok,
+        "label": "doc_registry resolves canonical docs or declared aliases",
+    })
+
+    try:
+        readme = (sidecar_root / "README.md").read_text(encoding="utf-8")
+        header_text = "\n".join(readme.split("\n", 10)[:6])
+        readme_ok = "Tranche 0" not in header_text or "No executable code yet" not in header_text
+    except Exception:
+        readme_ok = False
+
+    checks.append({
+        "id": "readme",
+        "ok": readme_ok,
+        "label": "README header reflects current implemented state",
+    })
+
+    try:
+        allowed = root_alias_paths(sidecar_root) + ["README.md", "LICENSE.md", ".gitignore", "smoke_test.py"]
+        docs_at_root = []
+        for path in sidecar_root.iterdir():
+            if not path.is_file():
+                continue
+            if path.suffix.lower() not in {".md", ".json"}:
+                continue
+            docs_at_root.append(path.name)
+        root_policy_ok = all(name in allowed for name in docs_at_root)
+    except Exception:
+        root_policy_ok = False
+
+    checks.append({
+        "id": "root_policy",
+        "ok": root_policy_ok,
+        "label": "Root doc clutter is limited to README/LICENSE and declared migration aliases",
+    })
+
+    try:
+        arch = read_doc_text(sidecar_root, "architecture")
+        import re
+
+        tranches = state.journal_manager.query(kind="tranche", limit=50) if state.journal_manager else []
+        completed_tranches = sorted(
+            {
+                re.match(r"T(\d+)", entry.title).group(1)
+                for entry in tranches
+                if re.match(r"T(\d+)", entry.title)
+            }
+        )
+        missing_sections = []
+        for tranche_num in completed_tranches:
+            if f"Resolved at T{tranche_num}" not in arch:
+                missing_sections.append(tranche_num)
+        arch_ok = not missing_sections
+    except Exception:
+        arch_ok = False
+
+    checks.append({
+        "id": "arch_15",
+        "ok": arch_ok,
+        "label": "ARCHITECTURE.md §15 includes completed tranche resolutions",
+    })
+
+    try:
+        tranches = state.journal_manager.query(kind="tranche", limit=5) if state.journal_manager else []
+        tranche_ok = bool(tranches) and tranches[0].status == "closed"
+    except Exception:
+        tranche_ok = False
+
+    checks.append({
+        "id": "latest_tranche",
+        "ok": tranche_ok,
+        "label": "Latest tranche journal entry is closed",
+    })
+
+    try:
+        latest_tranche_title = ""
+        tranches = state.journal_manager.query(kind="tranche", limit=1) if state.journal_manager else []
+        if tranches:
+            latest_tranche_title = tranches[0].title
+        where_now = read_doc_text(sidecar_root, "where_we_are_now")
+        dev_log = read_doc_text(sidecar_root, "dev_log")
+        northstars = read_doc_text(sidecar_root, "northstars")
+        active_tranche = state.tranche_manager.get_current() if getattr(state, "tranche_manager", None) else None
+        horizon_phrase = "Current tranche:" if active_tranche else "Next horizon:"
+        handoff_docs_ok = (
+            horizon_phrase in where_now
+            and "Next horizon" in northstars
+            and latest_tranche_title in where_now
+            and "T4" in dev_log
+        )
+    except Exception:
+        handoff_docs_ok = False
+
+    checks.append({
+        "id": "handoff_docs",
+        "ok": handoff_docs_ok,
+        "label": "Cold-team handoff docs align with latest parked tranche and horizon semantics",
+    })
+    return checks
+
+
+def _tail_log_lines(path, limit: int = 60) -> list[str]:
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            lines = handle.readlines()
+    except OSError:
+        return []
+    return [line.rstrip() for line in lines[-limit:] if line.strip()]

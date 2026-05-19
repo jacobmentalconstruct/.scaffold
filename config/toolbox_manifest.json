@@ -1,0 +1,133 @@
+{
+  "manifest_version": "1.0.0",
+  "sidecar_name": "scaffold-sidecar",
+  "sidecar_version": "0.1.0",
+  "sidecar_id": "sc_18ae61e3f9a3edcc_44bb8a5d",
+  "generated_at": "2026-05-19T11:52:30.275Z",
+  "sidecar_root_marker": ".scaffold",
+  "host_invariant": "the host project does not import from .scaffold/",
+  "zero_context_entry_protocol": {
+    "step_1": "Read contracts/BCC.md first.",
+    "step_2": "Inspect _docs/reference/PROJECT_BINDINGS.md as the local Project Binding Artifact defined by BCC Appendix B.",
+    "step_3": "Use _docs/continuity/ONBOARDING.md only as a convenience orientation surface derived from the contract and the local binding artifact.",
+    "step_4": "Read this manifest in full.",
+    "step_5": "Call read_projection(name='agent_bootstrap') for the live PAST/PRESENT/FUTURE summary.",
+    "step_6": "Acknowledge the contract before meaningful work and begin under Observe or Propose authority.",
+    "linked_contract": "contracts/BCC.md",
+    "linked_project_bindings": "_docs/reference/PROJECT_BINDINGS.md",
+    "linked_architecture": "_docs/reference/ARCHITECTURE.md",
+    "linked_roadmap": "_docs/planning/IMPLEMENTATION_ROADMAP.md",
+    "linked_onboarding": "_docs/continuity/ONBOARDING.md"
+  },
+  "current_contract": {
+    "contract_id": "builder_constraint",
+    "version": "1.0.0",
+    "text_hash": "df73c6f1296d56048c1b533efa8f7592975d1118f82e4f7e22263d001445cfed",
+    "ack_count": 695
+  },
+  "tiers": {
+    "builder_tools": "src/tools/ \u2014 see config/tool_manifest.json for per-tool details",
+    "vendable_packages": [],
+    "vendable_documents": [
+      {
+        "name": "README.md",
+        "purpose": "human-facing introduction"
+      },
+      {
+        "name": "_docs/reference/PROJECT_BINDINGS.md",
+        "purpose": "repo-local path and surface bindings"
+      },
+      {
+        "name": "_docs/continuity/ONBOARDING.md",
+        "purpose": "explicit reading order for a cold agent or human"
+      },
+      {
+        "name": "_docs/reference/ARCHITECTURE.md",
+        "purpose": "design truth"
+      },
+      {
+        "name": "_docs/planning/IMPLEMENTATION_ROADMAP.md",
+        "purpose": "tranche-by-tranche build plan and current status"
+      },
+      {
+        "name": "_docs/reference/TOOLS.md",
+        "purpose": "human-readable tool index"
+      },
+      {
+        "name": "_docs/reference/SOURCE_PROVENANCE.md",
+        "purpose": "what was original code vs structurally borrowed"
+      },
+      {
+        "name": "_docs/migration/INCORPORATION_INVENTORY.md",
+        "purpose": "precursor review and triage"
+      }
+    ]
+  },
+  "authority_levels": [
+    "Observe",
+    "Propose",
+    "Sandbox Execute",
+    "Apply",
+    "Export"
+  ],
+  "default_agent_authority": "Propose",
+  "projections": [
+    "agent_bootstrap",
+    "bcc_constraint_map",
+    "continuity_translation_status",
+    "contract_bundle_status",
+    "contract_migration_overview",
+    "contract_status",
+    "current_sidecar_state",
+    "doc_cutover_readiness",
+    "doc_registry_status",
+    "evidence_bag",
+    "handoff",
+    "human_dashboard",
+    "installed_project_proof",
+    "journal_timeline",
+    "journal_translation_readiness",
+    "legacy_reference_register",
+    "project_map",
+    "runtime_cockpit",
+    "training_runway",
+    "tranche_checklist",
+    "tranche_review_gate",
+    "viewport_state"
+  ],
+  "event_streams": [
+    "project",
+    "task",
+    "object",
+    "tool"
+  ],
+  "memory_model": {
+    "ltm": "Everything persistent on disk: journal, logs, projections, project code, sidecar code, contract.",
+    "stm": "Sliding window in agent context (managed by the agent's runtime, not the sidecar).",
+    "bag_of_evidence": "Bridge layer between STM overflow and LTM. Reserved schema; deferred implementation (DP1).",
+    "temporal_directions": "agent_bootstrap projection carries PAST + PRESENT + FUTURE \u2014 see ARCHITECTURE.md \u00a73.6."
+  },
+  "spine_rule": "Interface -> Envelope -> Router -> ContractCheck -> Orchestrator -> Manager -> Event -> derived views. No sideways calls. The envelope is the only currency.",
+  "park_phase_discipline": "Every tranche closes per BCC \u00a710.8 / ARCHITECTURE.md \u00a712.2. Five artifacts required: (a) tranche journal entry, (b) park-notes blob, (c) continuity docs updated, (d) accept_task + complete_task events, (e) close_journal_entry. smoke_test.py enforces drift detection.",
+  "verification_commands": [
+    "python -m src.app cli version",
+    "python -m src.app cli list-projections",
+    "python -m src.app cli tool-list",
+    "python -m src.app cli journal-query --kind tranche",
+    "python smoke_test.py"
+  ],
+  "schema_version": 15,
+  "event_count": 4216,
+  "tool_count": 8,
+  "journal_count": 1127,
+  "linked_resources": {
+    "tool_manifest": "config/tool_manifest.json",
+    "sidecar_db": "data/sidecar.db",
+    "contract": "contracts/BCC.md",
+    "project_bindings": "_docs/reference/PROJECT_BINDINGS.md",
+    "architecture": "_docs/reference/ARCHITECTURE.md",
+    "roadmap": "_docs/planning/IMPLEMENTATION_ROADMAP.md",
+    "onboarding": "_docs/continuity/ONBOARDING.md",
+    "source_provenance": "_docs/reference/SOURCE_PROVENANCE.md"
+  }
+}
