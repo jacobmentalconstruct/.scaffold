@@ -1,6 +1,6 @@
 {
   "manifest_version": "1.0.0",
-  "generated_at": "2026-05-19T11:52:30.272Z",
+  "generated_at": "2026-05-19T14:50:42.770Z",
   "sidecar_id": "sc_18ae61e3f9a3edcc_44bb8a5d",
   "tool_count": 8,
   "tools": [
@@ -65,7 +65,7 @@
         "result"
       ],
       "source_hash": "b58ebddcc13cd1fa291a1d78f979021673b0bed953e3aa7d0e5132f9b26ef951",
-      "registered_at": "2026-05-19T11:52:28.374Z"
+      "registered_at": "2026-05-19T14:50:40.885Z"
     },
     {
       "tool_name": "doc_registry_audit",
@@ -93,7 +93,7 @@
         "result"
       ],
       "source_hash": "598f13bbcc59a15c8239aecd33008d5213aaa301e7c5e3da27124e330b33fb6e",
-      "registered_at": "2026-05-19T11:52:28.375Z"
+      "registered_at": "2026-05-19T14:50:40.885Z"
     },
     {
       "tool_name": "file_tree_snapshot",
@@ -133,7 +133,7 @@
         "result"
       ],
       "source_hash": "7d04496e9f408b74272411fbe04781bcc01ddd439cf5db5ae0dc3d0467f612dd",
-      "registered_at": "2026-05-19T11:52:28.375Z"
+      "registered_at": "2026-05-19T14:50:40.886Z"
     },
     {
       "tool_name": "host_capability_probe",
@@ -154,7 +154,7 @@
         "result"
       ],
       "source_hash": "9da26b4e63861c87fd4aba2fa0b375669aa150822aa7a0a6ec987c1c6f724d89",
-      "registered_at": "2026-05-19T11:52:28.376Z"
+      "registered_at": "2026-05-19T14:50:40.886Z"
     },
     {
       "tool_name": "read_projection",
@@ -188,7 +188,7 @@
         "result"
       ],
       "source_hash": "a8de51b51fa4c4104bf219449bbfbe520fafc93416ad1a4d742dd91abe4ceb9f",
-      "registered_at": "2026-05-19T11:52:28.377Z"
+      "registered_at": "2026-05-19T14:50:40.887Z"
     },
     {
       "tool_name": "text_file_reader",
@@ -234,7 +234,7 @@
         "result"
       ],
       "source_hash": "837b91e9d94c3cc4e38f0842a40816a3fe0bc0f1cc9f030c834493a3d90273e8",
-      "registered_at": "2026-05-19T11:52:28.377Z"
+      "registered_at": "2026-05-19T14:50:40.887Z"
     },
     {
       "tool_name": "text_file_writer",
@@ -316,7 +316,7 @@
         "result"
       ],
       "source_hash": "c8a4f1a0522cf9ee5892a106a1569d304c8a5c6db47a6ca49e82b101434b8d92",
-      "registered_at": "2026-05-19T11:52:28.378Z"
+      "registered_at": "2026-05-19T14:50:40.888Z"
     },
     {
       "tool_name": "workspace_boundary_audit",
@@ -337,7 +337,7 @@
         "result"
       ],
       "source_hash": "1717c6225a8f0b5d9ede06164efc1b7b667c1999ad234b9a434b51344430f08b",
-      "registered_at": "2026-05-19T11:52:28.378Z"
+      "registered_at": "2026-05-19T14:50:40.888Z"
     }
   ],
   "categories": {

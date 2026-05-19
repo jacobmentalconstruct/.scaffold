@@ -17,6 +17,11 @@ from src.core.envelope import SidecarEnvelope
 from src.lib.common import public_root_labels, safe_json_dumps
 from src.lib.bcc_constraint_map import refresh_bcc_constraint_map
 from src.lib.logging_setup import get_logger
+from src.lib.public_export_sanitizer import (
+    audit_public_share_surfaces,
+    build_public_share_bundle,
+    write_public_share_bundle,
+)
 from src.lib.ui_launcher import launch_monitor
 from src.orchestrators.closeout_orchestrator import (
     derive_closeout_metadata,
@@ -241,6 +246,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p_cmsync = sub.add_parser("closeout-metadata-sync", help="Write generated closeout metadata files for the latest or selected closed tranche.")
     p_cmsync.add_argument("--journal-entry-uid", default="", help="Closed tranche journal entry uid.")
     sub.add_parser("contract-constraint-map-refresh", help="Recompile and persist the derived BCC constraint map.")
+    sub.add_parser("public-export-preview", help="Preview a derived public-safe export bundle.")
+    sub.add_parser("public-export-write", help="Write a derived public-safe export bundle under exports/public_share/.")
+    sub.add_parser("public-export-audit", help="Audit selected shareable surfaces and the public bundle for unsafe path leakage.")
 
     # ---- tranche ledger (T2.5) ----------------------------------------
     p_td = sub.add_parser("tranche-declare", help="Declare a new active tranche.")
@@ -1087,6 +1095,23 @@ def _cmd_contract_constraint_map_refresh(state, args) -> int:
     return 0
 
 
+def _cmd_public_export_preview(state, args) -> int:
+    _print_json(build_public_share_bundle(state))
+    return 0
+
+
+def _cmd_public_export_write(state, args) -> int:
+    result = write_public_share_bundle(state)
+    _print_json(result)
+    return 0 if result.get("status") == "ok" else 1
+
+
+def _cmd_public_export_audit(state, args) -> int:
+    result = audit_public_share_surfaces(state)
+    _print_json(result)
+    return 0 if result.get("safe_to_share") else 1
+
+
 def _cmd_tranche_declare(state, args) -> int:
     request = {
         "title": args.title,
@@ -1522,6 +1547,9 @@ _COMMANDS = {
     "closeout-metadata-show": _cmd_closeout_metadata_show,
     "closeout-metadata-sync": _cmd_closeout_metadata_sync,
     "contract-constraint-map-refresh": _cmd_contract_constraint_map_refresh,
+    "public-export-preview": _cmd_public_export_preview,
+    "public-export-write": _cmd_public_export_write,
+    "public-export-audit": _cmd_public_export_audit,
     # T2.5 Active Tranche Ledger
     "tranche-declare": _cmd_tranche_declare,
     "tranche-status": _cmd_tranche_status,

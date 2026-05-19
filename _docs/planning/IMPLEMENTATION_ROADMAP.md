@@ -1,6 +1,6 @@
 # IMPLEMENTATION_ROADMAP.md
 
-> **Status:** Living roadmap. T5/T5.1/T6/T6.1/T7/T8/T8.1/T9 are complete; T10 now has five completed slices (`T10 Closeout Metadata Derivation Hardening`, `T10.1 Prototype Target Requirements Map + Chat-Centered Sidecar Alignment`, `T10.2 Chat Review Gate Surface`, `T10.3 Explicit Authority Registration Hardening`, and `T10.4 HARD_BLOCK and Mutation-Path Trust-Gate Completion`). Vendability baseline is achieved, the chat-centered target state is codified, the first chat-over-spine review cockpit slice is parked, routed actors materialize explicit authority rows through the spine, mutation-path trust gates now fail early from one explicit policy path, and `T10.5 Derived BCC Constraint-Map Slice for Intent Decomposition` is the next narrow implementation candidate. References Tranche A output at `_docs/migration/INCORPORATION_INVENTORY.md`.
+> **Status:** Living roadmap. T5/T5.1/T6/T6.1/T7/T8/T8.1/T9 are complete; T10 now has seven completed slices (`T10 Closeout Metadata Derivation Hardening`, `T10.1 Prototype Target Requirements Map + Chat-Centered Sidecar Alignment`, `T10.2 Chat Review Gate Surface`, `T10.3 Explicit Authority Registration Hardening`, `T10.4 HARD_BLOCK and Mutation-Path Trust-Gate Completion`, `T10.5 Derived BCC Constraint-Map Slice for Intent Decomposition`, and `T10.7 Sanitized Public Export Surface`). Vendability baseline is achieved, the chat-centered target state is codified, the first chat-over-spine review cockpit slice is parked, routed actors materialize explicit authority rows through the spine, mutation-path trust gates now fail early from one explicit policy path, the first hash-bound derived BCC constraint map is projected for lower-token intent decomposition, a derived public-share boundary now supports sanitized external sharing, and `T10.6 Snapshot Cadence + Schema-Migration Harnesses` is the next narrow implementation candidate. References Tranche A output at `_docs/migration/INCORPORATION_INVENTORY.md`.
 
 ---
 
@@ -605,9 +605,9 @@ T4 proved the approval loop and handoff doctrine, but it did **not** finish the 
 - no snapshot/migration harness tranche
 - no concurrency soak work
 
-**Next implementation candidate:** `T10.5 Derived BCC Constraint-Map Slice for Intent Decomposition`
+**Next implementation candidate:** `T10.6 Snapshot Cadence + Schema-Migration Harnesses`
 
-This slice should derive the first machine-usable constraint map from `contracts/BCC.md`, keep it explicitly derived and non-authoritative, bind it to the live contract hash, require explicit refresh on mismatch, and expose runtime authority drift in the compiled surface instead of silently correcting it.
+This slice should decide the snapshot cadence, add snapshot orchestration and verification surfaces where needed, and harden schema-migration confidence so post-baseline continuity does not depend only on fresh-install proof.
 
 ---
 

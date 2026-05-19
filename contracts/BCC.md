@@ -2,6 +2,10 @@
 
 _Status: Active binding contract and sole authored doctrine source for this project._
 
+![Decomposing the BCC](../assets/decomposing-the-bcc.jpg)
+
+_Visual aid only. This infographic is non-authoritative; the contract text below remains binding._
+
 ## 0. Definitions
 
 For the purposes of this contract, the following terms shall have the meanings below.

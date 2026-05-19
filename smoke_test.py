@@ -74,6 +74,26 @@ def _contains_absolute_path(value) -> bool:
     return False
 
 
+def _find_unsafe_public_share_hits(value) -> list[str]:
+    hits: list[str] = []
+
+    def _walk(item) -> None:
+        if isinstance(item, dict):
+            for nested in item.values():
+                _walk(nested)
+            return
+        if isinstance(item, list):
+            for nested in item:
+                _walk(nested)
+            return
+        if isinstance(item, str):
+            hits.extend(re.findall(r"[A-Za-z]:\\[^\s\"'`<>|]+", item))
+            hits.extend(re.findall(r"/(?:Users|home)/[^\s\"'`<>|]+", item))
+
+    _walk(value)
+    return hits
+
+
 def _find_constraint_typo_hits(root: Path) -> dict[str, list[str]]:
     needle = "constrant"
     text_hits: list[str] = []
@@ -782,7 +802,7 @@ def main() -> int:
         except json.JSONDecodeError:
             latest_closeout = {}
     latest_title = str(latest_closeout.get("title") or "").strip()
-    expected_next_slice = "T10.5 Derived BCC Constraint-Map Slice for Intent Decomposition"
+    expected_next_slice = "T10.6 Snapshot Cadence + Schema-Migration Harnesses"
     if "Tranche 0" in header_text and "No executable code yet" in header_text:
         failures.append(_fail("README.md status header still says 'Tranche 0 — No executable code yet' — DRIFT"))
     elif "T10.3 in progress" in header_text:
@@ -793,9 +813,10 @@ def main() -> int:
         failures.append(_fail("README.md status header does not match latest parked tranche + next slice"))
 
     tools_header = "\n".join(tools_md.split("\n", 6)[:4])
+    latest_tranche_token = latest_title.split(" ", 1)[0] if latest_title else ""
     if "T10.3 in progress" in tools_header:
         failures.append(_fail("TOOLS.md status header still claims 'T10.3 in progress' — DRIFT"))
-    elif expected_next_slice in tools_header and "latest parked tranche is T10.4" in tools_header:
+    elif expected_next_slice in tools_header and latest_tranche_token and f"latest parked tranche is {latest_tranche_token}" in tools_header:
         _ok("TOOLS.md status header matches current parked-state wording")
     else:
         failures.append(_fail("TOOLS.md status header does not reflect current parked-state wording"))
@@ -1185,6 +1206,96 @@ def main() -> int:
                 failures.append(_fail(f"bcc_constraint_map not ready after explicit refresh: {refreshed_row}"))
     except Exception as e:
         failures.append(_fail(f"T10.5 explicit refresh recovery failed: {e}"))
+
+    _section("45.7. T10.7: public-share export surfaces are sanitized and audit-clean")
+    try:
+        transition_note = sidecar_root / "_docs" / "history" / "transitions" / "BRANCH_02_TRANSITION_NOTE_2026-05-12.md"
+        transition_text = transition_note.read_text(encoding="utf-8")
+        transition_hits = _find_unsafe_public_share_hits(transition_text)
+        if not transition_hits:
+            _ok("tracked transition note no longer leaks an absolute machine-local path")
+        else:
+            failures.append(_fail(f"tracked transition note still leaks unsafe paths: {transition_hits[:5]}"))
+
+        preview_proc = subprocess.run(
+            [sys.executable, "-m", "src.app", "cli", "public-export-preview"],
+            cwd=str(sidecar_root),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if preview_proc.returncode != 0:
+            failures.append(_fail(
+                f"public-export-preview failed rc={preview_proc.returncode}: {preview_proc.stderr.strip()}"
+            ))
+        else:
+            preview_json = json.loads(preview_proc.stdout)
+            if preview_json.get("status") == "derived_non_authoritative_sanitized":
+                _ok("public-export-preview returns a derived non-authoritative sanitized bundle")
+            else:
+                failures.append(_fail(f"public-export-preview status unexpected: {preview_json.get('status')}"))
+            preview_hits = _find_unsafe_public_share_hits(preview_json)
+            if not preview_hits:
+                _ok("public-export-preview bundle contains no absolute-path or home-path leakage")
+            else:
+                failures.append(_fail(f"public-export-preview leaked unsafe paths: {preview_hits[:10]}"))
+
+        write_proc = subprocess.run(
+            [sys.executable, "-m", "src.app", "cli", "public-export-write"],
+            cwd=str(sidecar_root),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        written_paths: list[Path] = []
+        if write_proc.returncode != 0:
+            failures.append(_fail(
+                f"public-export-write failed rc={write_proc.returncode}: {write_proc.stderr.strip()}"
+            ))
+        else:
+            write_json = json.loads(write_proc.stdout)
+            if write_json.get("safe_to_share") is True:
+                _ok("public-export-write reports safe_to_share=true")
+            else:
+                failures.append(_fail(f"public-export-write safe_to_share unexpected: {write_json}"))
+            for key in ("json_path", "markdown_path", "report_path"):
+                rel = str(write_json.get(key) or "")
+                if rel.startswith("exports/public_share/"):
+                    _ok(f"{key} written under exports/public_share/")
+                else:
+                    failures.append(_fail(f"{key} not under exports/public_share/: {rel}"))
+                if rel:
+                    written_paths.append(sidecar_root / rel)
+            for path in written_paths:
+                if path.is_file():
+                    payload = path.read_text(encoding="utf-8")
+                    path_hits = _find_unsafe_public_share_hits(payload)
+                    if not path_hits:
+                        _ok(f"{path.name} contains no unsafe public-share path leakage")
+                    else:
+                        failures.append(_fail(f"{path.name} leaked unsafe paths: {path_hits[:10]}"))
+                else:
+                    failures.append(_fail(f"public export output missing: {path}"))
+
+        audit_proc = subprocess.run(
+            [sys.executable, "-m", "src.app", "cli", "public-export-audit"],
+            cwd=str(sidecar_root),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if audit_proc.returncode != 0:
+            failures.append(_fail(
+                f"public-export-audit failed rc={audit_proc.returncode}: {audit_proc.stderr.strip()}"
+            ))
+        else:
+            audit_json = json.loads(audit_proc.stdout)
+            if audit_json.get("safe_to_share") is True and not audit_json.get("tracked_surface_hits"):
+                _ok("public-export-audit passes with no tracked share-surface leakage")
+            else:
+                failures.append(_fail(f"public-export-audit reported leakage: {audit_json}"))
+    except Exception as e:
+        failures.append(_fail(f"T10.7 public-share export checks failed: {e}"))
 
     _section("46. ONBOARDING: README.md references canonical onboarding path")
     readme_text = (sidecar_root / "README.md").read_text(encoding="utf-8")

@@ -3,7 +3,7 @@
   "sidecar_name": "scaffold-sidecar",
   "sidecar_version": "0.1.0",
   "sidecar_id": "sc_18ae61e3f9a3edcc_44bb8a5d",
-  "generated_at": "2026-05-19T11:52:30.275Z",
+  "generated_at": "2026-05-19T14:50:42.773Z",
   "sidecar_root_marker": ".scaffold",
   "host_invariant": "the host project does not import from .scaffold/",
   "zero_context_entry_protocol": {
@@ -22,8 +22,8 @@
   "current_contract": {
     "contract_id": "builder_constraint",
     "version": "1.0.0",
-    "text_hash": "df73c6f1296d56048c1b533efa8f7592975d1118f82e4f7e22263d001445cfed",
-    "ack_count": 695
+    "text_hash": "1eb11dfa2a5f64e99698a4cf8b9814afd417cd1792db17fe6044078fefa3dd19",
+    "ack_count": 767
   },
   "tiers": {
     "builder_tools": "src/tools/ \u2014 see config/tool_manifest.json for per-tool details",
@@ -117,9 +117,9 @@
     "python smoke_test.py"
   ],
   "schema_version": 15,
-  "event_count": 4216,
+  "event_count": 4668,
   "tool_count": 8,
-  "journal_count": 1127,
+  "journal_count": 1260,
   "linked_resources": {
     "tool_manifest": "config/tool_manifest.json",
     "sidecar_db": "data/sidecar.db",

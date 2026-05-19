@@ -2,9 +2,9 @@
 
 ## Snapshot
 
-- Latest parked tranche: T10.4 HARD_BLOCK and Mutation-Path Trust-Gate Completion
+- Latest parked tranche: T10.7 Sanitized Public Export Surface
 - Current substrate state: contract-bound, Tk-backed, MCP-capable, local-agent-capable, runtime-traced, training-capable, installed-project-proof-capable, substrate baseline achieved, chat-centered target codified
-- Next horizon: T10.5 Derived BCC constraint-map slice for intent decomposition
+- Next horizon: T10.6 Snapshot Cadence + Schema-Migration Harnesses
 - Deferred backlog status: normalized into `_docs/planning/IMPLEMENTATION_ROADMAP.md` and mirrored as open journal todos
 
 ## What just landed
@@ -25,7 +25,8 @@
 - T10.2 parked the first MCP chat-cockpit review/closeout slice and generated park notes at `_docs/history/tranches/T10_2_PARK_NOTES.md`
 - T10.3 parked explicit authority-row materialization for ordinary routed actors and generated park notes at `_docs/history/tranches/T10_3_PARK_NOTES.md`
 - T10.4 parked the trust-gate floor: project-targeted mutation now fails early at the contract gate, scaffold approvals require exact manifest `entry_paths`, and tranche declaration blocks on authoritative Park/continuity drift
-- current branch work for T10.5 now exposes `projection://bcc_constraint_map` as a derived, non-authoritative, hash-bound mirror of `contracts/BCC.md` for lower-token intent decomposition; explicit refresh is required on contract-hash drift, and runtime authority drift is exposed there rather than corrected
+- T10.5 parked the first derived BCC constraint-map slice: `projection://bcc_constraint_map` is now a durable, non-authoritative, hash-bound mirror of `contracts/BCC.md` for lower-token intent decomposition; explicit refresh is required on contract-hash drift, and runtime authority drift is exposed there rather than corrected
+- T10.7 parked the derived public-share boundary: `public-export-preview`, `public-export-write`, and `public-export-audit` now generate or verify sanitized non-authoritative share bundles while leaving authoritative private runtime truth unchanged
 
 ## What to read next
 
@@ -50,6 +51,8 @@ python -m src.app cli projection tranche_review_gate
 python -m src.app cli projection runtime_cockpit
 python -m src.app cli projection training_runway
 python -m src.app cli projection installed_project_proof
+python -m src.app cli public-export-preview
+python -m src.app cli public-export-audit
 python -m src.app cli journal-query --kind todo --status open
 python -m src.app cli approval-list --all
 python -m src.app cli local-agent-status
@@ -64,9 +67,9 @@ python -m src.app ui
 
 The substrate baseline is now achieved. There is no active tranche open.
 
-The latest parked tranche is `T10.4 HARD_BLOCK and Mutation-Path Trust-Gate Completion`.
+The latest parked tranche is `T10.7 Sanitized Public Export Surface`.
 
-The next narrow implementation slice after that park is `T10.5 Derived BCC constraint-map slice for intent decomposition`.
+The next narrow implementation slice after that park is `T10.6 Snapshot Cadence + Schema-Migration Harnesses`.
 
 The broader T10 horizon remains post-baseline hardening plus the chat-centered recentering now codified in `_docs/planning/TARGET_STATE.md`.
 

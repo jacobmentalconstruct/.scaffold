@@ -1,9 +1,13 @@
 # `.scaffold/` — Vended Sidecar Package
 
-> **Status:** Latest parked tranche is **T10.4 HARD_BLOCK and Mutation-Path Trust-Gate Completion**. Substrate baseline remains achieved, the first chat-over-spine review cockpit slice is parked, routed actors materialize explicit authority rows through the spine, mutation-path trust gates now fail early from one explicit policy path, and the next narrow implementation slice is **T10.5 Derived BCC Constraint-Map Slice for Intent Decomposition**. Spine boot ✓, journal ✓, install + scan ✓, proposal-capable MCP ✓, 8 tools registered, Tk operator UI ✓, approval loop ✓, local sidecar agent floor ✓, schema v8 memory layer ✓, runtime trace/cockpit ✓, teaching sandbox/training runway ✓, installed-project vendability proof ✓, target-state doctrine locked ✓.
+> **Status:** Latest parked tranche is **T10.7 Sanitized Public Export Surface**. Substrate baseline remains achieved, the first chat-over-spine review cockpit slice is parked, routed actors materialize explicit authority rows through the spine, mutation-path trust gates now fail early from one explicit policy path, the first hash-bound derived BCC constraint map is projected for lower-token intent decomposition, a derived public-share export boundary now supports sanitized external sharing without mutating private truth, and the next narrow implementation slice is **T10.6 Snapshot Cadence + Schema-Migration Harnesses**. Spine boot ✓, journal ✓, install + scan ✓, proposal-capable MCP ✓, 8 tools registered, Tk operator UI ✓, approval loop ✓, local sidecar agent floor ✓, schema v8 memory layer ✓, runtime trace/cockpit ✓, teaching sandbox/training runway ✓, installed-project vendability proof ✓, target-state doctrine locked ✓.
 > See [_docs/planning/IMPLEMENTATION_ROADMAP.md](_docs/planning/IMPLEMENTATION_ROADMAP.md) for tranche progress and [_docs/planning/TARGET_STATE.md](_docs/planning/TARGET_STATE.md) for the binding prototype target. T10.1 codifies the governing rule for the next phase: **chat becomes the cockpit, the DB remains the memory, and the spine remains the authority path.**
 >
 > **New here?** Read **[contracts/BCC.md](contracts/BCC.md)** first, then **[_docs/reference/PROJECT_BINDINGS.md](_docs/reference/PROJECT_BINDINGS.md)** for this repo's concrete local bindings, then **[_docs/continuity/ONBOARDING.md](_docs/continuity/ONBOARDING.md)** as the convenience orientation surface derived from them.
+
+![Decomposing the BCC](assets/decomposing-the-bcc.jpg)
+
+_Visual aid for the Builder Constraint Contract. The prose contract in `contracts/BCC.md` remains authoritative._
 
 ## What this is
 
@@ -21,6 +25,8 @@ The current target is **not** “expand the dashboard.” The current target is 
 For the first chat-cockpit slice, MCP-connected chat clients should drive the review/park loop by reading `projection://tranche_review_gate`, then `review://latest`, then submitting review intents through `sidecar/submit`, and finally reading `closeout://latest` after Park Phase. The spine remains the only authority path.
 
 Current branch work for `T10.5` also exposes `projection://bcc_constraint_map`: a derived, non-authoritative surface hash-bound to `contracts/BCC.md` that exists to improve intent decomposition and token efficiency. If the compiled hash drifts from the live contract, guidance is stale until `python -m src.app cli contract-constraint-map-refresh` is run. Runtime authority drift is exposed there, not corrected.
+
+The working tree also includes a derived public-share export boundary for safe external sharing. Use `python -m src.app cli public-export-preview`, `python -m src.app cli public-export-write`, and `python -m src.app cli public-export-audit` to inspect or generate sanitized non-authoritative share bundles. Authoritative sidecar truth stays private; the public bundle is a derived mirror and must not be treated as replayable runtime state.
 
 ## The invariant
 

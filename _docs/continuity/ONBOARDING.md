@@ -11,6 +11,8 @@ The current target state is now explicitly **chat-centered**: chat is intended t
 
 Current branch work for `T10.5` also exposes `projection://bcc_constraint_map`, a derived and non-authoritative surface hash-bound to `contracts/BCC.md`. It exists to reduce token cost during intent decomposition. If the compiled hash drifts from the live contract, run `python -m src.app cli contract-constraint-map-refresh`; T10.5 exposes runtime authority drift there rather than correcting it.
 
+The working tree also carries a derived public-share export boundary for safe outside sharing. `public-export-preview`, `public-export-write`, and `public-export-audit` generate or verify sanitized non-authoritative bundles; they do not rewrite or downgrade the private authoritative spine.
+
 The host project **never knows the sidecar exists** — no imports across the boundary; the sidecar only writes inside its own subtree unless explicit `Apply`/`Export` authority is granted.
 
 ## What state is the project in right now?
@@ -74,6 +76,8 @@ python -m src.app cli projection bcc_constraint_map
 python -m src.app cli projection runtime_cockpit
 python -m src.app cli projection training_runway
 python -m src.app cli projection installed_project_proof
+python -m src.app cli public-export-preview
+python -m src.app cli public-export-audit
 
 # Show every tranche journal entry (the canonical closeout records)
 python -m src.app cli journal-query --kind tranche

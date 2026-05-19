@@ -195,11 +195,17 @@ Out of scope:
    - tranche declaration now blocks on authoritative Park/continuity drift
 
 4. **T10.5 — Derived BCC Constraint-Map Slice for Intent Decomposition**
-   - derive the first machine-usable constraint map from `contracts/BCC.md`
-   - use it to guide intent decomposition before proposal/park gating
-   - keep the map explicitly derived and non-authoritative
-   - bind the map to the live contract hash and require explicit refresh on mismatch
-   - expose runtime authority drift as truth instead of normalizing it away
+   - complete
+   - the first machine-usable constraint map is now derived from `contracts/BCC.md`
+   - it guides intent decomposition before proposal/park gating
+   - it remains explicitly derived and non-authoritative
+   - it is bound to the live contract hash and requires explicit refresh on mismatch
+   - runtime authority drift is exposed as truth instead of normalized away
+
+5. **T10.6 — Snapshot Cadence + Schema-Migration Harnesses**
+   - decide the snapshot cadence for post-baseline continuity
+   - add the first explicit snapshot/migration confidence harnesses
+   - keep the work narrowly focused on resilience and continuity hardening
 
 5. **Later T10+ slices**
    - chat work declaration surfaces

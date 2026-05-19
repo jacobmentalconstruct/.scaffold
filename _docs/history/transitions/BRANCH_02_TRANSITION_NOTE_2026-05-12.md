@@ -9,7 +9,7 @@ without mutating or rewriting earlier project history.
 ## Branch Context
 
 - Active branch root during this repair session:
-  - `C:\Users\jacob\Documents\_AppDesign\_LivePROJECTS\.scaffold_BRANCH-02`
+  - `.scaffold_BRANCH-02` (machine-local absolute path intentionally omitted)
 - Intent of this branch note:
   - acknowledge that this branch diverged from prior workspace history
   - preserve a readable record of branch-specific cleanup and hardening

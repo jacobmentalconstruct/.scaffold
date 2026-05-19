@@ -1,6 +1,6 @@
 # TOOLS.md — Tool Index
 
-> **Status:** 8 tools registered. The latest parked tranche is T10.4, and the next narrow implementation slice is **T10.5 Derived BCC Constraint-Map Slice for Intent Decomposition**. Source of truth for each tool's metadata is the `FILE_METADATA` block in its source file; this index is a navigational mirror, regenerated as part of every tranche's Park Phase (see `_docs/reference/ARCHITECTURE.md §12.2`). The registry now includes `doc_registry_audit`, which supports documentation-registry drift checks without changing the current tranche state.
+> **Status:** 8 tools registered. The latest parked tranche is T10.7, and the next narrow implementation slice is **T10.6 Snapshot Cadence + Schema-Migration Harnesses**. Source of truth for each tool's metadata is the `FILE_METADATA` block in its source file; this index is a navigational mirror, regenerated as part of every tranche's Park Phase (see `_docs/reference/ARCHITECTURE.md §12.2`). The registry now includes `doc_registry_audit`, which supports documentation-registry drift checks without changing the current tranche state.
 
 ---
 

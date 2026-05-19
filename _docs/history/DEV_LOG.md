@@ -143,3 +143,10 @@ Append-only milestone log for humans and agents onboarding cold.
 - Tightened scaffold approvals from broad tool-name matching to exact manifest-aware `entry_paths`, so changed scaffold manifests no longer inherit stale grants.
 - Added an authoritative Park/continuity drift helper and made `declare_tranche` fail fast when latest-closeout state and `WE_ARE_HERE_NOW.md` disagree on the parked lifecycle story.
 - Extended smoke to prove the new hard-block reasons, manifest-aware approval matching, and declare-tranche drift blocking without regressing MCP review/park or installed-proof verification.
+
+## 2026-05-19 — T10.7 Working-Tree Public Share Boundary
+
+- Added `src/lib/public_export_sanitizer.py` to build a derived non-authoritative `public_share_bundle` from selected continuity, handoff, bootstrap, and installed-proof summary surfaces.
+- Added `public-export-preview`, `public-export-write`, and `public-export-audit` CLI commands so operators can inspect sanitized bundles and mechanically verify selected tracked share surfaces before external sharing.
+- Replaced the known absolute-path leak in `_docs/history/transitions/BRANCH_02_TRANSITION_NOTE_2026-05-12.md` with a neutral historical reference that preserves meaning without exposing a machine-local path.
+- Extended smoke to prove the preview/write/audit loop, generated bundle hygiene, and tracked-surface leak checks without mutating authoritative private runtime truth.

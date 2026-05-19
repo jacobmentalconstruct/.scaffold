@@ -6,6 +6,8 @@
 
 As of the T10.5 decomposition slice, the runtime may also expose `projection://bcc_constraint_map` as a derived, non-authoritative mirror of `contracts/BCC.md`. That surface exists to compress intent-decomposition guidance for agents. It is hash-bound to the live contract, requires explicit refresh on contract drift, and must expose runtime authority drift rather than silently correcting it.
 
+The working tree may also expose a derived public-share export bundle for external research or review. That boundary must sanitize machine-local paths and similar host identifiers without mutating authoritative sidecar truth in place; the private spine remains authoritative, and any public-share bundle is a non-authoritative mirror only.
+
 ---
 
 ## 1. The spine, in one sentence
